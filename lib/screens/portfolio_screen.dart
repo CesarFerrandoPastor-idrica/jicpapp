@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/modelos_auth.dart';
 import '../api/modelos_proyecto.dart';
+import '../api/proveedores.dart';
 import '../api/sesion.dart';
 
 const _dorado = Color(0xFFD4AF37);
@@ -13,14 +15,14 @@ const _superficie = Color(0xFF151515);
 ///   `alumno_proyecto`, donde vive el rol.
 /// - **Invertidos**: participaciones compradas en proyectos de otros, valoradas
 ///   a precio de hoy por el servidor.
-class PortfolioScreen extends StatefulWidget {
+class PortfolioScreen extends ConsumerStatefulWidget {
   const PortfolioScreen({super.key});
 
   @override
-  State<PortfolioScreen> createState() => _PortfolioScreenState();
+  ConsumerState<PortfolioScreen> createState() => _PortfolioScreenState();
 }
 
-class _PortfolioScreenState extends State<PortfolioScreen> {
+class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
   List<ProyectoConRol> _proyectos = const [];
   List<Posicion> _posiciones = const [];
   double? _saldo;
@@ -35,7 +37,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Future<void> _cargar() async {
-    final idAlumno = Sesion.instancia.perfil?.alumno?.id;
+    final idAlumno = ref.read(sesionProvider).alumno?.id;
     if (idAlumno == null) {
       setState(() {
         _error = 'Esta pantalla es del alumnado';
@@ -48,9 +50,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     try {
       // En paralelo: son independientes y encadenarlas solo haria la espera mas larga.
       final resultados = await Future.wait([
-        Sesion.instancia.proyectos.misProyectos(idAlumno),
-        Sesion.instancia.proyectos.portafolio(),
-        Sesion.instancia.proyectos.saldo(),
+        ref.read(repositorioProyectosProvider).misProyectos(idAlumno),
+        ref.read(repositorioProyectosProvider).portafolio(),
+        ref.read(repositorioProyectosProvider).saldo(),
       ]);
       if (!mounted) return;
       setState(() {

@@ -43,6 +43,11 @@ dependencies:
   # SOLO guarda tokens. Nunca saldos: el saldo es del servidor.
   flutter_secure_storage: ^9.2.4
 
+  # Inyeccion de dependencias y estado de la sesion. Las pantallas piden el
+  # cliente y los repositorios con `ref` en vez de a un objeto global, y en los
+  # tests se sustituyen con `overrides`. La 3.4.1+ exige Dart 3.12.
+  flutter_riverpod: ^3.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

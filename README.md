@@ -46,7 +46,7 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | UI alumno (Flutter) | ✅ Implementada | Mercado, cursos, portafolio, crear proyecto, perfil, wallet, comentarios |
 | UI profesor (Flutter) | ✅ Implementada | Mercado, gestión de cursos, ranking de alumnos, perfil |
 | Navegación y tema | ✅ Implementados | Tema oscuro + dorado, bottom nav por rol |
-| Datos | ⚠️ Mixtos | Login, crear proyecto y portafolio usan la API; el resto de pantallas sigue en `MockData` |
+| Datos | ⚠️ Mixtos | Login, mercado (con compra), crear proyecto y portafolio usan la API; el resto de pantallas sigue en `MockData` |
 | Autenticación | ✅ Conectada | La pantalla de login llama a la API; el rol y la navegación los decide el servidor. Alumno **y profesor** |
 | Backend (Kotlin + Spring Boot) | 🚧 En curso | Módulos `colegio`, `alumno`, `profesor`, `proyecto`, `seguridad`, `contabilidad` e `inversion` |
 | Base de datos (PostgreSQL) | 🚧 En curso | Migraciones Flyway `V1` a `V6`: esquema, catálogos, equipo, usuario, profesorado y **libro contable** |
@@ -56,7 +56,7 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | Contabilidad de JICP | ✅ Implementada | Doble partida, bloqueo pesimista, idempotencia y `CHECK` de saldo. Con test de concurrencia |
 | Mercado de participaciones | ✅ Implementado | Crear proyecto con inversión inicial, invertir con precio variable y comentar |
 | Layout adaptativo tablet | ⏳ Pendiente | Actualmente optimizado para móvil |
-| Tests | 🚧 En curso | 46 de integración en el backend (Testcontainers) y 4 de widget en Flutter |
+| Tests | 🚧 En curso | 49 de integración en el backend (Testcontainers) y 20 en Flutter (login, mercado e `Idempotency-Key`, con repositorio falso) |
 
 ---
 
@@ -69,9 +69,9 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | Framework | Flutter (stable) | Android, iOS y tablet desde un único código |
 | Lenguaje | Dart `^3.11.4` | Ver `environment` en `pubspec.yaml` |
 | UI | Material 3, tema oscuro forzado | Definido en `lib/main.dart` |
-| Estado | *Por decidir* — recomendado **Riverpod** | De momento un `ChangeNotifier` suelto (`lib/api/sesion.dart`) para no dar la elección por tomada |
+| Estado e inyección | ✅ **Riverpod** 3 | Proveedores en `lib/api/proveedores.dart`; la sesión es un `Notifier`. Las pantallas piden sus dependencias con `ref` y los tests las sustituyen con `overrides` |
 | Navegación | Actualmente `Navigator` imperativo → migrar a **go_router** | Necesario para deep links y guards por rol |
-| HTTP | ✅ **dio** + interceptor de JWT | Renueva el token al recibir un `401`. Falta `Idempotency-Key`, que llega con las inversiones |
+| HTTP | ✅ **dio** + interceptor de JWT | Renueva el token al recibir un `401`. Las compras mandan `Idempotency-Key` (`lib/api/idempotencia.dart`) |
 | Serialización | **freezed** + **json_serializable** | Modelos inmutables desde el contrato de la API |
 | Almacenamiento seguro | ✅ **flutter_secure_storage** | Solo tokens. **Nunca saldos** |
 
@@ -445,13 +445,16 @@ jicpapp/
 │   │   ├── modelos_auth.dart          # Rol, Tokens, Perfil, ErrorApi
 │   │   ├── modelos_proyecto.dart      # Catalogo, ProyectoCreado, ProyectoConRol, Posicion
 │   │   ├── repositorio_auth.dart      # login · refresh · logout · /yo
-│   │   ├── repositorio_proyectos.dart # categorías · crear · mis proyectos · portafolio · saldo
-│   │   └── sesion.dart                # Sesión activa y saldo (ChangeNotifier)
+│   │   ├── idempotencia.dart          # UUID v4 para la cabecera Idempotency-Key
+│   │   ├── repositorio_proyectos.dart # categorías · crear · mercado · invertir · portafolio · saldo
+│   │   ├── proveedores.dart           # Grafo de dependencias con Riverpod (cliente, repositorios)
+│   │   └── sesion.dart                # Sesión activa y saldo (Notifier de Riverpod)
 │   └── screens/
 │       ├── welcome_screen.dart        # Landing con propuesta de valor
 │       ├── login_screen.dart          # Acceso real contra la API (email + contraseña)
 │       ├── main_navigation.dart       # Shell de navegación del alumno
-│       ├── market_screen.dart         # Mercado, buscador, filtros y detalle de proyecto
+│       ├── market_screen.dart         # Mercado del centro contra la API (+ ficha mock del profesor)
+│       ├── ficha_proyecto_screen.dart # Ficha real del proyecto y hoja de compra
 │       ├── learning_screen.dart       # Cursos y progreso
 │       ├── portfolio_screen.dart      # Mis proyectos e invertidos, contra la API
 │       ├── create_project_screen.dart # Alta de proyecto contra la API
@@ -503,8 +506,8 @@ jicpapp/
 
 | Pantalla | Qué hace | Estado |
 |---|---|---|
-| **Mercado** | Lista de proyectos con buscador y filtro por categoría (Tecnología, Salud, Finanzas, Educación, Media) | UI lista |
-| **Detalle de proyecto** | Descripción, desglose de inversión, rendimiento (%), inversión de otros usuarios y hoja de compra | UI lista |
+| **Mercado** | Proyectos publicados del centro, con buscador y filtro por categoría (catálogo del servidor) | ✅ Conectado a la API |
+| **Detalle de proyecto** | Descripción, precio actual, ronda, recaudado, inversores, tu posición y hoja de compra | ✅ Conectado a la API; faltan los comentarios |
 | **Comentarios** | Hilo de comentarios por proyecto | UI lista |
 | **Cursos** | Cursos asignados con barra de progreso | UI lista |
 | **Portafolio** | Proyectos propios (con su rol y progreso de ronda) e inversiones en ajenos, con plusvalía | ✅ Conectado a la API |
@@ -521,20 +524,22 @@ La migración de `MockData` a la API va pantalla a pantalla. Este es el corte ex
 | **Login** | ✅ Conectada | — |
 | **Crear proyecto** | ✅ Conectada | Patente e imagen no tienen columna en el backend; el desglose se adjunta a la descripción |
 | **Portafolio** | ✅ Conectada | Las tarjetas no navegan: el detalle sigue en mock |
-| **Mercado** | ⏳ `MockData` | **Es lo siguiente.** Listar proyectos del centro y comprar participaciones con `POST /inversiones` |
-| **Detalle de proyecto** | ⏳ `MockData` | Ficha real + hoja de compra + comentarios (`GET/POST /proyectos/{id}/comentarios`) |
+| **Mercado** | ✅ Conectado | — |
+| **Detalle de proyecto** | ✅ Conectado | Ficha real y compra con `Idempotency-Key`. **Falta** el enlace a comentarios |
 | **Wallet / movimientos** | ⏳ `MockData` | `GET /cartera/movimientos` ya existe y está paginado |
 | **Detalle de inversión** | ⏳ `MockData` | Historial de compras de una posición |
-| **Comentarios** | ⏳ `MockData` | El backend ya lo soporta entero |
+| **Comentarios** | ⏳ `MockData` | **Es lo siguiente.** El backend ya lo soporta entero (`GET/POST /proyectos/{id}/comentarios`) |
 | **Cursos** | ⏳ `MockData` | No hay backend todavía |
 | **Perfil** | ⏳ `MockData` | `GET /yo` ya devuelve los datos reales |
 | **Todo el profesor** | ⏳ `MockData` | Cursos y ranking no tienen backend |
 
 Notas para retomarlo:
 
-- Las tarjetas del Portafolio **no navegan a propósito**: llevar desde una lista real a un detalle inventado confunde más que no navegar. En cuanto el detalle esté conectado, se les devuelve el `onTap`.
+- Las tarjetas del Portafolio **todavía no navegan**: la ficha real (`FichaProyectoScreen`) ya existe, pero recibe un `ProyectoDeMercado` y el Portafolio tiene `ProyectoConRol`/`Posicion`. Falta pedir `GET /proyectos/{id}` al tocar la tarjeta.
+- La ficha del alumno es `FichaProyectoScreen`. `ProjectDetailScreen` (mock) sigue viva **solo** porque la usa el mercado del profesor.
+- La hoja de compra genera una `Idempotency-Key` por intento. Si el servidor responde con error, la compra no se hizo y el siguiente intento lleva clave nueva. Si **no llega respuesta**, bloquea la cantidad y solo deja *reintentar* con la misma clave: nunca da por fallida una compra sin respuesta.
 - El fundador aparece en `/portafolio` con las participaciones de sus propios proyectos, porque las tiene de verdad. El Portafolio las separa al pintar (filtrando por los ids de sus proyectos) en lugar de pedirle al servidor que las oculte. Cualquier pantalla nueva que use `/portafolio` tiene que tener esto en cuenta.
-- Endpoints ya disponibles y sin usar todavía desde la app: `/proyectos/{id}/mercado`, `/proyectos/{id}/inversores`, `/cartera/movimientos`, `/proyectos/{id}/comentarios`.
+- Endpoints ya disponibles y sin usar todavía desde la app: `/proyectos/{id}/inversores`, `/cartera/movimientos`, `/proyectos/{id}/comentarios`.
 
 ### Profesor
 
@@ -729,6 +734,10 @@ Los listados devuelven la envoltura `Page` de Spring (`content`, `totalElements`
 
 Un reintento con la misma clave devuelve **`200` con el recibo original**, no un error ni una respuesta vacía: el cliente necesita el saldo para pintar la pantalla.
 
+Por eso la clave se comprueba **antes que cualquier validación**, justo después de bloquear el proyecto. Un reintento llega cuando la compra original ya ha subido el precio o agotado la ronda; validarlo como compra nueva respondería `409` a una compra que sí se hizo, y el cliente la daría por fallida.
+
+Una clave que ya pertenece a **otra operación** del alumno (su concesión inicial o el alta de un proyecto, cuyas claves genera el servidor y son predecibles) se rechaza con `409`. Si se aceptara, la contabilidad la reconocería como «ya cobrada» y la compra emitiría participaciones sin mover dinero.
+
 ```http
 POST /api/v1/inversiones
 Authorization: Bearer <jwt>
@@ -766,6 +775,7 @@ Lo que rechaza el servidor, todo con el detalle en `problem+json`:
 | `precioUnitarioEsperado` distinto del actual | `409` |
 | Más participaciones de las que quedan en la ronda | `409` |
 | Falta `Idempotency-Key` | `409` |
+| `Idempotency-Key` ya usada para otra operación (no una compra) | `409` |
 | Participaciones ≤ 0 o con más de 4 decimales | `422` |
 
 ### Autenticación
@@ -1068,12 +1078,15 @@ La app fuerza `ThemeMode.dark` y usa Material 3. Pendiente para tablet: puntos d
 - [x] Cierre de sesión que revoca el refresh token en el backend
 - [x] Crear proyecto contra la API, con saldo real y confirmación de participaciones
 - [x] Portafolio contra la API: proyectos propios con su rol, e inversiones con plusvalía
-- [ ] **Mercado contra la API**: listar proyectos del centro y comprar participaciones ← siguiente
-- [ ] Detalle de proyecto: ficha real, hoja de compra y comentarios
+- [x] Mercado contra la API: proyectos publicados del centro y compra de participaciones
+- [x] Detalle de proyecto: ficha real y hoja de compra
+- [ ] **Comentarios del proyecto** contra la API ← siguiente
+- [ ] Tarjetas del Portafolio que abran la ficha real
 - [ ] Wallet y detalle de inversión desde `/cartera/movimientos`
 - [ ] Perfil desde `GET /yo`
-- [ ] `Idempotency-Key` en las operaciones de moneda
-- [ ] Gestión de estado (Riverpod) y `go_router` con guards por rol
+- [x] `Idempotency-Key` en las compras, con reintento seguro ante respuestas perdidas
+- [x] Inyección de dependencias y estado de la sesión con Riverpod
+- [ ] `go_router` con guards por rol
 - [ ] Saldo y cartera renderizados exclusivamente desde respuestas del servidor
 - [ ] Subida de imágenes de proyecto
 

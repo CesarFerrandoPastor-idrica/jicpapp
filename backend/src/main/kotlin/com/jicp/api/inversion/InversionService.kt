@@ -55,6 +55,14 @@ class InversionService(
         // dos compras simultaneas no lean las mismas participaciones emitidas.
         proyectos.bloquear(peticion.idProyecto)
             ?: throw RecursoNoEncontradoException("proyecto", peticion.idProyecto)
+
+        // La clave se mira ANTES que cualquier validacion. Un reintento llega cuando la
+        // compra original ya ha subido el precio (o agotado la ronda): validarlo como si
+        // fuera nuevo contestaria 409 a una compra que SI se hizo, y el cliente la daria
+        // por fallida. Va despues del bloqueo para que un duplicado simultaneo espere a
+        // que el original confirme y lo encuentre aqui.
+        reciboPrevio(inversor.id!!, claveIdempotencia)?.let { return it }
+
         val proyecto = proyectos.buscarConRelaciones(peticion.idProyecto)!!
 
         validarQueSePuedeInvertir(proyecto, inversor.id!!, inversor.colegio.id!!)
@@ -102,6 +110,15 @@ class InversionService(
             return recibo(it, resultado.saldoOrigen)
         }
 
+        // Ultima red para la carrera que [reciboPrevio] no puede ver: otra operacion del
+        // mismo alumno con esta clave confirmada justo entre aquella consulta y la de la
+        // contabilidad. Lanzar aqui deshace la transaccion entera, emision incluida.
+        if (operaciones.getReferenceById(resultado.idOperacion).tipo != TipoOperacion.INVERSION) {
+            throw ConflictoException(
+                "Esa Idempotency-Key ya se uso para otra operacion. Genera una nueva para cada compra",
+            )
+        }
+
         proyecto.participacionesEmitidas =
             proyecto.participacionesEmitidas.add(participaciones)
 
@@ -136,6 +153,24 @@ class InversionService(
         val operacion = operaciones
             .findByActorIdAndClaveIdempotencia(idAlumnoActor, claveIdempotencia) ?: return null
         val movimiento = movimientos.findByOperacionId(operacion.id!!) ?: return null
+        return recibo(movimiento, contabilidad.saldoDe(idAlumnoActor))
+    }
+
+    /**
+     * El recibo de la compra que ya se hizo con esta clave, o null si la clave es nueva.
+     *
+     * Si la clave existe pero pertenece a otra cosa —la concesion inicial o el alta de un
+     * proyecto, cuyas claves genera el servidor y son predecibles— se rechaza. Dejarla
+     * pasar haria que la contabilidad reconociese la operacion antigua como "ya cobrada"
+     * y la compra emitiria participaciones sin mover un solo JICP.
+     */
+    private fun reciboPrevio(idAlumnoActor: Int, claveIdempotencia: String): InversionResponse? {
+        val operacion = operaciones
+            .findByActorIdAndClaveIdempotencia(idAlumnoActor, claveIdempotencia) ?: return null
+        val movimiento = movimientos.findByOperacionId(operacion.id!!)
+            ?: throw ConflictoException(
+                "Esa Idempotency-Key ya se uso para otra operacion. Genera una nueva para cada compra",
+            )
         return recibo(movimiento, contabilidad.saldoDe(idAlumnoActor))
     }
 

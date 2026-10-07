@@ -210,6 +210,73 @@ class MercadoTest {
         )
     }
 
+    /**
+     * El reintento llega cuando la primera compra ya ha movido el precio. Si el servidor
+     * validase el precio antes de reconocer la clave, contestaria 409 a una compra que SI
+     * se hizo, y la app la daria por fallida y dejaria comprar otra vez.
+     */
+    @Test
+    fun `el reintento con la misma clave devuelve el recibo aunque el precio ya haya subido`() {
+        val colegio = crearColegio("IES Reintento", "reintento@ies.example")
+        val fundador = crearAlumno(colegio, "f.rein@ies.example", saldo = "10000.00")
+        val inversor = crearAlumno(colegio, "i.rein@ies.example", saldo = "10000.00")
+        val proyecto = crearProyecto(fundador, "Reintento", "1000.00", "100.00", "100.0000")
+
+        // 10 emitidas por el fundador: 100 * (1 + 10/100) = 110
+        val clave = UUID.randomUUID().toString()
+        val primera = comprar("i.rein@ies.example", proyecto, "5.0000", clave, precioEsperado = "110.0000")
+        val segunda = comprar("i.rein@ies.example", proyecto, "5.0000", clave, precioEsperado = "110.0000")
+
+        assertEquals(primera["idOperacion"].asInt(), segunda["idOperacion"].asInt())
+        igual("5.0000", segunda["participacionesTotales"].decimalValue(), "posicion")
+        igual("9450.00", saldoDe(inversor), "saldo: cobrado una sola vez")
+    }
+
+    @Test
+    fun `el reintento de la compra que agoto la ronda tambien devuelve su recibo`() {
+        val colegio = crearColegio("IES Ronda Llena", "llena@ies.example")
+        val fundador = crearAlumno(colegio, "f.llena@ies.example", saldo = "10000.00")
+        crearAlumno(colegio, "i.llena@ies.example", saldo = "10000.00")
+        val proyecto = crearProyecto(fundador, "Ronda llena", "1000.00", "100.00", "20.0000")
+
+        val clave = UUID.randomUUID().toString()
+        val primera = comprar("i.llena@ies.example", proyecto, "10.0000", clave)
+        val segunda = comprar("i.llena@ies.example", proyecto, "10.0000", clave)
+
+        assertEquals(primera["idOperacion"].asInt(), segunda["idOperacion"].asInt())
+    }
+
+    /**
+     * Las operaciones que genera el propio servidor llevan claves predecibles. Si una
+     * compra pudiera reutilizarlas, el servidor creeria que ya se habia cobrado y emitiria
+     * participaciones sin mover dinero.
+     */
+    @Test
+    fun `una clave de otra operacion no da participaciones gratis`() {
+        val colegio = crearColegio("IES Clave Ajena", "ajena@ies.example")
+        val fundador = crearAlumno(colegio, "f.ajena@ies.example", saldo = "10000.00")
+        val inversor = crearAlumno(colegio, "i.ajena@ies.example", saldo = "10000.00")
+        val proyecto = crearProyecto(fundador, "Clave ajena", "1000.00", "100.00", "100.0000")
+        val otroProyecto = crearProyecto(inversor, "Del inversor", "500.00", "100.00", "100.0000")
+
+        for (clave in listOf("concesion-inicial-$inversor", "creacion-proyecto-$otroProyecto")) {
+            mockMvc.post("/api/v1/inversiones") {
+                header(HttpHeaders.AUTHORIZATION, "Bearer ${tokenDe("i.ajena@ies.example")}")
+                header("Idempotency-Key", clave)
+                contentType = MediaType.APPLICATION_JSON
+                content = """{"idProyecto": $proyecto, "participaciones": 5.0000}"""
+            }.andExpect { status { isConflict() } }
+        }
+
+        // Ni una participacion emitida, ni un JICP movido.
+        igual("9500.00", saldoDe(inversor), "saldo tras fundar su proyecto")
+        val mercado = json.readTree(
+            mockMvc.get("/api/v1/proyectos/$proyecto/mercado")
+                .andExpect { status { isOk() } }.andReturn().response.contentAsString,
+        )
+        igual("10.0000", mercado["participacionesEmitidas"].decimalValue(), "emitidas")
+    }
+
     @Test
     fun `50 compras simultaneas con saldo para una sola y solo una prospera`() {
         val colegio = crearColegio("IES Concurrencia", "concurrencia@ies.example")
@@ -418,15 +485,25 @@ class MercadoTest {
     private fun invertir(idAlumno: Int, idProyecto: Int, participaciones: String) =
         comprar(emailDe(idAlumno), idProyecto, participaciones, UUID.randomUUID().toString())
 
-    private fun comprar(inversor: String, idProyecto: Int, participaciones: String, clave: String) =
-        json.readTree(
-            mockMvc.post("/api/v1/inversiones") {
-                header(HttpHeaders.AUTHORIZATION, "Bearer ${tokenDe(inversor)}")
-                header("Idempotency-Key", clave)
-                contentType = MediaType.APPLICATION_JSON
-                content = """{"idProyecto": $idProyecto, "participaciones": $participaciones}"""
-            }.andExpect { status { isOk() } }.andReturn().response.contentAsString,
-        )
+    private fun comprar(
+        inversor: String,
+        idProyecto: Int,
+        participaciones: String,
+        clave: String,
+        precioEsperado: String? = null,
+    ) = json.readTree(
+        mockMvc.post("/api/v1/inversiones") {
+            header(HttpHeaders.AUTHORIZATION, "Bearer ${tokenDe(inversor)}")
+            header("Idempotency-Key", clave)
+            contentType = MediaType.APPLICATION_JSON
+            content = if (precioEsperado == null) {
+                """{"idProyecto": $idProyecto, "participaciones": $participaciones}"""
+            } else {
+                """{"idProyecto": $idProyecto, "participaciones": $participaciones,
+                    "precioUnitarioEsperado": $precioEsperado}"""
+            }
+        }.andExpect { status { isOk() } }.andReturn().response.contentAsString,
+    )
 
     private fun saldoDe(idAlumno: Int): BigDecimal = json.readTree(
         mockMvc.get("/api/v1/cartera") {

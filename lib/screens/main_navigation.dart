@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/sesion.dart';
 import 'market_screen.dart';
@@ -8,14 +9,14 @@ import 'portfolio_screen.dart';
 import 'profile_screen.dart';
 import 'welcome_screen.dart';
 
-class MainNavigation extends StatefulWidget {
+class MainNavigation extends ConsumerStatefulWidget {
   const MainNavigation({super.key});
 
   @override
-  State<MainNavigation> createState() => _MainNavigationState();
+  ConsumerState<MainNavigation> createState() => _MainNavigationState();
 }
 
-class _MainNavigationState extends State<MainNavigation> {
+class _MainNavigationState extends ConsumerState<MainNavigation> {
   int _selectedIndex = 0;
 
   final List<String> _titles = [
@@ -53,7 +54,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 color: const Color(0xFF151515),
                 onSelected: (value) {
                   if (value == 'logout') {
-                    _cerrarSesion(context);
+                    _cerrarSesion(context, ref);
                   }
                 },
                 itemBuilder: (context) => [
@@ -150,9 +151,9 @@ class _MainNavigationState extends State<MainNavigation> {
 ///
 /// Revocar el refresh token en el backend es lo que de verdad cierra la sesion:
 /// borrar los tokens del movil sin avisar dejaria uno valido durante 30 dias.
-Future<void> _cerrarSesion(BuildContext context) async {
+Future<void> _cerrarSesion(BuildContext context, WidgetRef ref) async {
   final navegador = Navigator.of(context);
-  await Sesion.instancia.salir();
+  await ref.read(sesionProvider.notifier).salir();
   navegador.pushAndRemoveUntil(
     MaterialPageRoute(builder: (context) => const WelcomeScreen()),
     (route) => false,

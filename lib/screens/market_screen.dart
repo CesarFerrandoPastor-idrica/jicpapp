@@ -1,45 +1,110 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../api/modelos_auth.dart';
+import '../api/modelos_proyecto.dart';
+import '../api/proveedores.dart';
+import '../api/sesion.dart';
 import '../mock_data.dart';
 import 'comments_screen.dart';
+import 'ficha_proyecto_screen.dart';
 
-class MarketScreen extends StatefulWidget {
+const _dorado = Color(0xFFD4AF37);
+const _superficie = Color(0xFF151515);
+
+/// Mercado del alumno: los proyectos publicados de su centro.
+///
+/// La lista se pide entera una vez y el buscador y las categorías filtran en
+/// local. Las categorías vienen del servidor, igual que en Crear proyecto, para
+/// que el filtro no se desincronice del catálogo de la base.
+class MarketScreen extends ConsumerStatefulWidget {
   const MarketScreen({super.key});
 
   @override
-  State<MarketScreen> createState() => _MarketScreenState();
+  ConsumerState<MarketScreen> createState() => _MarketScreenState();
 }
 
-class _MarketScreenState extends State<MarketScreen> {
-  int _selectedCategoryIndex = 0;
-  final List<String> _categories = ['Todos', 'Tecnología', 'Salud', 'Finanzas', 'Educación', 'Media'];
-  String _searchQuery = '';
+class _MarketScreenState extends ConsumerState<MarketScreen> {
+  List<ProyectoDeMercado> _proyectos = const [];
+  List<Catalogo> _categorias = const [];
+
+  /// null = todas.
+  int? _idCategoria;
+  String _busqueda = '';
+
+  bool _cargando = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    final idColegio = ref.read(sesionProvider).alumno?.idColegio;
+    if (idColegio == null) {
+      setState(() {
+        _error = 'Esta pantalla es del alumnado';
+        _cargando = false;
+      });
+      return;
+    }
+
+    setState(() => _error = null);
+    try {
+      final resultados = await Future.wait([
+        ref.read(repositorioProyectosProvider).mercado(idColegio: idColegio),
+        ref.read(repositorioProyectosProvider).categorias(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _proyectos = resultados[0] as List<ProyectoDeMercado>;
+        _categorias = resultados[1] as List<Catalogo>;
+        _cargando = false;
+      });
+    } on ErrorApi catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.mensaje;
+        _cargando = false;
+      });
+    }
+  }
+
+  List<ProyectoDeMercado> get _filtrados {
+    final texto = _busqueda.trim().toLowerCase();
+    return _proyectos.where((p) {
+      final encajaCategoria = _idCategoria == null || p.idCategoria == _idCategoria;
+      final encajaTexto = texto.isEmpty || p.nombre.toLowerCase().contains(texto);
+      return encajaCategoria && encajaTexto;
+    }).toList();
+  }
+
+  Future<void> _abrir(ProyectoDeMercado proyecto) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => FichaProyectoScreen(proyecto: proyecto)),
+    );
+    // Al volver se relee: si ha comprado, el precio y la ronda ya no son los de antes.
+    if (mounted) _cargar();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filteredProjects = MockData.featuredProjects.where((p) {
-      final matchesCategory = _selectedCategoryIndex == 0 || p.category == _categories[_selectedCategoryIndex];
-      final matchesSearch = p.title.toLowerCase().contains(_searchQuery.toLowerCase());
-      return matchesCategory && matchesSearch;
-    }).toList();
-
     return Column(
       children: [
-        // Search Bar
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: TextField(
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value;
-              });
-            },
+            onChanged: (valor) => setState(() => _busqueda = valor),
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               hintText: 'Buscar por nombre del proyecto...',
               hintStyle: const TextStyle(color: Colors.white38),
-              prefixIcon: const Icon(Icons.search, color: Color(0xFFD4AF37)),
+              prefixIcon: const Icon(Icons.search, color: _dorado),
               filled: true,
-              fillColor: const Color(0xFF151515),
+              fillColor: _superficie,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(20),
                 borderSide: BorderSide.none,
@@ -50,210 +115,305 @@ class _MarketScreenState extends State<MarketScreen> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(20),
-                borderSide: const BorderSide(color: Color(0xFFD4AF37)),
+                borderSide: const BorderSide(color: _dorado),
               ),
             ),
           ),
         ),
-        
-        // Categories Filter
         SizedBox(
           height: 60,
-          child: ListView.builder(
+          child: ListView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            itemCount: _categories.length,
-            itemBuilder: (context, index) {
-              final isSelected = _selectedCategoryIndex == index;
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedCategoryIndex = index;
-                  });
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isSelected ? const Color(0xFFD4AF37) : const Color(0xFF151515),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isSelected ? const Color(0xFFD4AF37) : Colors.white24,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    _categories[index],
-                    style: TextStyle(
-                      color: isSelected ? Colors.black : Colors.white70,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    ),
-                  ),
-                ),
-              );
-            },
+            children: [
+              _chip('Todos', null),
+              for (final c in _categorias) _chip(c.nombre, c.id),
+            ],
           ),
         ),
-        
-        // Projects Grid
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              int crossAxisCount = 1;
-              if (constraints.maxWidth >= 1200) {
-                 crossAxisCount = 4;
-              } else if (constraints.maxWidth >= 800) {
-                 crossAxisCount = 3;
-              } else if (constraints.maxWidth >= 600) {
-                 crossAxisCount = 2;
-              }
-
-              return GridView.builder(
-                padding: const EdgeInsets.all(16),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 0.72,
-                ),
-                itemCount: filteredProjects.length,
-                itemBuilder: (context, index) {
-                  final project = filteredProjects[index];
-                  return _ProjectCard(
-                    project: project,
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ProjectDetailScreen(project: project),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
+        Expanded(child: _cuerpo()),
       ],
     );
   }
+
+  Widget _chip(String texto, int? idCategoria) {
+    final seleccionado = _idCategoria == idCategoria;
+    return GestureDetector(
+      onTap: () => setState(() => _idCategoria = idCategoria),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+        decoration: BoxDecoration(
+          color: seleccionado ? _dorado : _superficie,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: seleccionado ? _dorado : Colors.white24),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          texto,
+          style: TextStyle(
+            color: seleccionado ? Colors.black : Colors.white70,
+            fontWeight: seleccionado ? FontWeight.bold : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _cuerpo() {
+    if (_cargando) {
+      return const Center(child: CircularProgressIndicator(color: _dorado));
+    }
+    if (_error != null) {
+      return _pantallaDeError(_error!);
+    }
+
+    final proyectos = _filtrados;
+    if (proyectos.isEmpty) {
+      return _vacio(
+        _proyectos.isEmpty
+            ? 'Todavía no hay proyectos publicados en tu centro'
+            : 'Ningún proyecto encaja con la búsqueda',
+      );
+    }
+
+    final idAlumno = ref.watch(sesionProvider).alumno?.id;
+    return RefreshIndicator(
+      color: _dorado,
+      backgroundColor: _superficie,
+      onRefresh: _cargar,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          var columnas = 1;
+          if (constraints.maxWidth >= 1200) {
+            columnas = 4;
+          } else if (constraints.maxWidth >= 800) {
+            columnas = 3;
+          } else if (constraints.maxWidth >= 600) {
+            columnas = 2;
+          }
+
+          return GridView.builder(
+            padding: const EdgeInsets.all(16),
+            physics: const AlwaysScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columnas,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              mainAxisExtent: 280,
+            ),
+            itemCount: proyectos.length,
+            itemBuilder: (context, i) => _TarjetaDeProyecto(
+              proyecto: proyectos[i],
+              esMio: proyectos[i].idCreador == idAlumno,
+              onTap: () => _abrir(proyectos[i]),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _vacio(String texto) => RefreshIndicator(
+        color: _dorado,
+        backgroundColor: _superficie,
+        onRefresh: _cargar,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 80),
+            const Icon(Icons.storefront_outlined, color: Colors.white24, size: 56),
+            const SizedBox(height: 16),
+            Text(
+              texto,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white54, fontSize: 15),
+            ),
+          ],
+        ),
+      );
+
+  Widget _pantallaDeError(String mensaje) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off, color: Colors.white24, size: 56),
+              const SizedBox(height: 16),
+              Text(
+                mensaje,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() => _cargando = true);
+                  _cargar();
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _dorado,
+                  side: const BorderSide(color: _dorado),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
-class _ProjectCard extends StatelessWidget {
-  final Project project;
-  final VoidCallback onTap;
+class _TarjetaDeProyecto extends StatelessWidget {
+  const _TarjetaDeProyecto({
+    required this.proyecto,
+    required this.esMio,
+    required this.onTap,
+  });
 
-  const _ProjectCard({required this.project, required this.onTap});
+  final ProyectoDeMercado proyecto;
+  final bool esMio;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.5),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          )
-        ],
-      ),
+    final p = proyecto;
+    return Material(
+      color: const Color(0xFF111111),
+      borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Imagen superior
-          Expanded(
-            flex: 3,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Hero(
-                  tag: 'image_${project.title}',
-                  child: Image.network(
-                    project.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: const Color(0xFF1A1A1A),
-                      child: const Icon(Icons.rocket_launch, color: Color(0xFFD4AF37), size: 40),
-                    ),
-                  ),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, const Color(0xFF111111).withOpacity(0.9)],
-                    ),
-                  ),
-                ),
-              ],
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: esMio ? _dorado.withValues(alpha: 0.35) : Colors.white12,
             ),
           ),
-          
-          // Información inferior
-          Expanded(
-            flex: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    project.title,
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Por: ${project.creator}',
-                    style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Text(
-                      project.description,
-                      style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
-                      maxLines: 4,
-                      overflow: TextOverflow.ellipsis,
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _dorado.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: Icon(iconoDeCategoria(p.categoria), color: _dorado),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Valor Acción', style: TextStyle(color: Colors.white38, fontSize: 10)),
-                          Text('${project.price} JICP', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
-                        ],
-                      ),
-                      FilledButton(
-                        onPressed: onTap,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFD4AF37),
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.nombre,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                        child: const Text('Abrir', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          esMio ? 'Tu proyecto' : 'Por: ${p.nombreCreador ?? '—'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _dorado,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Text(
+                  p.descripcion,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white60, fontSize: 12, height: 1.4),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: p.progresoDeRonda,
+                  minHeight: 5,
+                  backgroundColor: Colors.white10,
+                  valueColor: const AlwaysStoppedAnimation(_dorado),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${(p.progresoDeRonda * 100).toStringAsFixed(0)}% de la ronda colocada',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Precio participación',
+                          style: TextStyle(color: Colors.white38, fontSize: 10)),
+                      Text(
+                        '${p.precioOrientativo.toStringAsFixed(2)} JICP',
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
+                  FilledButton(
+                    onPressed: onTap,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _dorado,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                    ),
+                    child: const Text('Abrir',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
+/// Icono para cada categoría del catálogo. Si aparece una nueva, cae en el genérico.
+IconData iconoDeCategoria(String categoria) => switch (categoria) {
+      'Tecnología' => Icons.memory,
+      'Salud' => Icons.favorite_outline,
+      'Finanzas' => Icons.account_balance_outlined,
+      'Educación' => Icons.school_outlined,
+      'Media' => Icons.movie_outlined,
+      _ => Icons.rocket_launch_outlined,
+    };
+
+/// Ficha de proyecto con datos simulados.
+///
+/// Solo la usa ya el mercado del profesor, que sigue en `MockData`. El alumno
+/// entra a [FichaProyectoScreen], que habla con la API.
 class ProjectDetailScreen extends StatelessWidget {
   final Project project;
   final double? userShares;

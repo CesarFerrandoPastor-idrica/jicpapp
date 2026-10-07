@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/config_api.dart';
 import '../api/modelos_auth.dart';
@@ -6,14 +7,14 @@ import '../api/sesion.dart';
 import 'main_navigation.dart';
 import 'teacher_navigation.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _formulario = GlobalKey<FormState>();
@@ -40,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final perfil = await Sesion.instancia.entrar(
+      final perfil = await ref.read(sesionProvider.notifier).entrar(
         email: _email.text,
         password: _password.text,
       );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api/modelos_auth.dart';
 import 'api/sesion.dart';
@@ -7,7 +8,9 @@ import 'screens/teacher_navigation.dart';
 import 'screens/welcome_screen.dart';
 
 void main() {
-  runApp(const MyApp());
+  // ProviderScope guarda las instancias de todos los proveedores (cliente,
+  // repositorios, sesion). Por debajo de el, cualquier pantalla puede pedirlas.
+  runApp(const ProviderScope(child: MyApp()));
 }
 
 /// Necesario para poder navegar desde fuera del arbol de widgets: cuando el
@@ -15,19 +18,8 @@ void main() {
 /// tiene ningun BuildContext a mano.
 final GlobalKey<NavigatorState> navegadorGlobal = GlobalKey<NavigatorState>();
 
-class MyApp extends StatefulWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-    Sesion.instancia.alExpirarLaSesion = _volverAlAcceso;
-  }
 
   /// La sesion ha muerto por su cuenta (el refresh dejo de valer, o el servidor
   /// la corto al detectar un token reutilizado). Se saca al usuario en vez de
@@ -49,7 +41,13 @@ class _MyAppState extends State<MyApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Solo reacciona a la caducidad, no a cualquier cierre: cuando el usuario
+    // sale a proposito, la pantalla desde la que sale ya hace la navegacion.
+    ref.listen(sesionProvider.select((s) => s.caducada), (antes, ahora) {
+      if (ahora && antes != true) _volverAlAcceso();
+    });
+
     return MaterialApp(
       title: 'JICP Bolsa Social',
       debugShowCheckedModeBanner: false,
@@ -90,16 +88,16 @@ class _MyAppState extends State<MyApp> {
 /// El rol que manda es el que devuelve `GET /yo`, no nada que estuviera guardado
 /// en el movil: si alguien manipulase el almacen local, el servidor seguiria
 /// diciendo la verdad y la app le llevaria a donde le corresponde.
-class _Arranque extends StatefulWidget {
+class _Arranque extends ConsumerStatefulWidget {
   const _Arranque();
 
   @override
-  State<_Arranque> createState() => _ArranqueState();
+  ConsumerState<_Arranque> createState() => _ArranqueState();
 }
 
-class _ArranqueState extends State<_Arranque> {
+class _ArranqueState extends ConsumerState<_Arranque> {
   late final Future<Perfil?> _sesionGuardada =
-      Sesion.instancia.recuperarSesionGuardada();
+      ref.read(sesionProvider.notifier).recuperarSesionGuardada();
 
   @override
   Widget build(BuildContext context) {

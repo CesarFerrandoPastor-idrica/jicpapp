@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/modelos_auth.dart';
 import '../api/modelos_proyecto.dart';
+import '../api/proveedores.dart';
 import '../api/sesion.dart';
 
 const _dorado = Color(0xFFD4AF37);
 const _superficie = Color(0xFF151515);
 
-class CreateProjectScreen extends StatefulWidget {
+class CreateProjectScreen extends ConsumerStatefulWidget {
   const CreateProjectScreen({super.key});
 
   @override
-  State<CreateProjectScreen> createState() => _CreateProjectScreenState();
+  ConsumerState<CreateProjectScreen> createState() => _CreateProjectScreenState();
 }
 
-class _CreateProjectScreenState extends State<CreateProjectScreen> {
+class _CreateProjectScreenState extends ConsumerState<CreateProjectScreen> {
   final _formulario = GlobalKey<FormState>();
   final _nombre = TextEditingController();
   final _descripcion = TextEditingController();
@@ -49,9 +51,12 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   /// `idCategoria` que se envía tiene que ser el de la base, y una lista escrita
   /// a mano se desincroniza en cuanto se añade una categoría nueva.
   Future<void> _cargarDatosIniciales() async {
+    // Se toma antes de esperar: tras un `await` la pantalla puede haberse
+    // cerrado, y entonces `ref` ya no se puede usar.
+    final sesion = ref.read(sesionProvider.notifier);
     try {
-      final categorias = await Sesion.instancia.proyectos.categorias();
-      await Sesion.instancia.refrescarSaldo();
+      final categorias = await ref.read(repositorioProyectosProvider).categorias();
+      await sesion.refrescarSaldo();
       if (!mounted) return;
       setState(() {
         _categorias = categorias;
@@ -78,8 +83,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       _error = null;
     });
 
+    final sesion = ref.read(sesionProvider.notifier);
     try {
-      final creado = await Sesion.instancia.proyectos.crear(
+      final creado = await ref.read(repositorioProyectosProvider).crear(
         nombre: _nombre.text,
         descripcion: _descripcionCompleta(),
         idCategoria: _categoria!.id,
@@ -90,8 +96,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       );
 
       // El saldo se relee del servidor. Nunca se calcula "saldo - inversion" en
-      // local: lo que manda es lo que diga la cartera.
-      await Sesion.instancia.refrescarSaldo();
+      // local: lo que manda es lo que diga la cartera. Se hace aunque el alumno
+      // ya haya salido de la pantalla: el dinero se movio igual.
+      await sesion.refrescarSaldo();
 
       if (!mounted) return;
       setState(() {
@@ -238,10 +245,11 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   /// Saldo disponible, leído del servidor. Se enseña para que el alumno sepa qué
   /// puede permitirse antes de rellenar nada.
   Widget _tarjetaDeSaldo() {
-    return AnimatedBuilder(
-      animation: Sesion.instancia,
-      builder: (context, _) {
-        final saldo = Sesion.instancia.saldo;
+    // Consumer y no AnimatedBuilder: se repinta solo esta tarjeta cuando cambia
+    // el saldo de la sesion, no el formulario entero.
+    return Consumer(
+      builder: (context, ref, _) {
+        final saldo = ref.watch(sesionProvider).saldo;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
@@ -314,7 +322,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
             validador: (v) {
               final n = _numero(v ?? '');
               if (n <= 0) return 'Pon lo que aportas tú al proyecto';
-              final saldo = Sesion.instancia.saldo;
+              final saldo = ref.read(sesionProvider).saldo;
               // Aviso inmediato, no una garantía: quien decide es el servidor.
               if (saldo != null && n > saldo) return 'No te llega el saldo (tienes $saldo)';
               return null;

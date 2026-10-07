@@ -134,6 +134,166 @@ class ProyectoConRol {
   }
 }
 
+/// Un proyecto tal y como aparece en el mercado del centro.
+class ProyectoDeMercado {
+  const ProyectoDeMercado({
+    required this.id,
+    required this.nombre,
+    required this.descripcion,
+    required this.idCategoria,
+    required this.categoria,
+    required this.estado,
+    required this.inversionInicial,
+    required this.precioBase,
+    required this.participacionesTotales,
+    required this.participacionesEmitidas,
+    this.idCreador,
+    this.nombreCreador,
+  });
+
+  final int id;
+  final String nombre;
+  final String descripcion;
+  final int idCategoria;
+  final String categoria;
+  final String estado;
+  final double inversionInicial;
+  final double precioBase;
+  final double participacionesTotales;
+  final double participacionesEmitidas;
+
+  /// Id de alumno del fundador. Puede faltar en proyectos antiguos sin creador.
+  final int? idCreador;
+  final String? nombreCreador;
+
+  /// Precio actual con la fórmula del servidor, **solo para pintar la tarjeta**.
+  ///
+  /// La compra no lo usa: el precio que se envía como esperado sale de
+  /// `/proyectos/{id}/mercado`, porque el servidor lo compara al céntimo de
+  /// céntimo y un cálculo en coma flotante podría no coincidir.
+  double get precioOrientativo => participacionesTotales == 0
+      ? precioBase
+      : precioBase * (1 + participacionesEmitidas / participacionesTotales);
+
+  double get progresoDeRonda => participacionesTotales == 0
+      ? 0
+      : (participacionesEmitidas / participacionesTotales).clamp(0.0, 1.0);
+
+  factory ProyectoDeMercado.desdeJson(Map<String, dynamic> json) {
+    final categoria = json['categoria'] as Map<String, dynamic>;
+    final creador = json['creador'] as Map<String, dynamic>?;
+    return ProyectoDeMercado(
+      id: json['id'] as int,
+      nombre: json['nombre'] as String,
+      descripcion: json['descripcion'] as String,
+      idCategoria: categoria['id'] as int,
+      categoria: categoria['nombre'] as String,
+      estado: (json['estado'] as Map<String, dynamic>)['nombre'] as String,
+      inversionInicial: (json['inversionInicial'] as num).toDouble(),
+      precioBase: (json['precioBase'] as num).toDouble(),
+      participacionesTotales: (json['participacionesTotales'] as num).toDouble(),
+      participacionesEmitidas:
+          (json['participacionesEmitidas'] as num).toDouble(),
+      idCreador: creador?['idAlumno'] as int?,
+      nombreCreador: creador == null
+          ? null
+          : '${creador['nombre']} ${creador['apellido']}',
+    );
+  }
+}
+
+/// Estado del mercado de un proyecto en este instante, calculado por el servidor.
+class EstadoDeMercado {
+  const EstadoDeMercado({
+    required this.idProyecto,
+    required this.precioBase,
+    required this.precioActual,
+    required this.participacionesTotales,
+    required this.participacionesEmitidas,
+    required this.participacionesDisponibles,
+    required this.recaudado,
+    required this.inversores,
+  });
+
+  final int idProyecto;
+  final double precioBase;
+
+  /// El precio al que se compraría ahora. Es el que se envía como
+  /// `precioUnitarioEsperado`: si alguien compra antes y lo mueve, el servidor
+  /// rechaza la compra en vez de cobrar un precio que el alumno no vio.
+  final double precioActual;
+  final double participacionesTotales;
+  final double participacionesEmitidas;
+  final double participacionesDisponibles;
+
+  /// Lo que hay en la tesorería del proyecto.
+  final double recaudado;
+  final int inversores;
+
+  bool get rondaAgotada => participacionesDisponibles <= 0;
+
+  factory EstadoDeMercado.desdeJson(Map<String, dynamic> json) =>
+      EstadoDeMercado(
+        idProyecto: json['idProyecto'] as int,
+        precioBase: (json['precioBase'] as num).toDouble(),
+        precioActual: (json['precioActual'] as num).toDouble(),
+        participacionesTotales:
+            (json['participacionesTotales'] as num).toDouble(),
+        participacionesEmitidas:
+            (json['participacionesEmitidas'] as num).toDouble(),
+        participacionesDisponibles:
+            (json['participacionesDisponibles'] as num).toDouble(),
+        recaudado: (json['recaudado'] as num).toDouble(),
+        inversores: json['inversores'] as int,
+      );
+}
+
+/// El recibo de una compra. Todo lo que trae lo ha calculado el servidor.
+class ReciboDeInversion {
+  const ReciboDeInversion({
+    required this.idOperacion,
+    required this.nombreProyecto,
+    required this.participacionesCompradas,
+    required this.precioUnitario,
+    required this.importe,
+    required this.participacionesTotales,
+    required this.precioMedio,
+    required this.precioSiguiente,
+    required this.saldoCartera,
+  });
+
+  final int idOperacion;
+  final String nombreProyecto;
+  final double participacionesCompradas;
+  final double precioUnitario;
+  final double importe;
+
+  /// Las que tiene ahora el alumno en el proyecto, sumando las de antes.
+  final double participacionesTotales;
+  final double precioMedio;
+
+  /// A cuánto queda la siguiente, ya subida por esta misma compra.
+  final double precioSiguiente;
+
+  /// Saldo real tras la compra. **Este** es el que se pinta.
+  final double saldoCartera;
+
+  factory ReciboDeInversion.desdeJson(Map<String, dynamic> json) =>
+      ReciboDeInversion(
+        idOperacion: json['idOperacion'] as int,
+        nombreProyecto: json['nombreProyecto'] as String,
+        participacionesCompradas:
+            (json['participacionesCompradas'] as num).toDouble(),
+        precioUnitario: (json['precioUnitario'] as num).toDouble(),
+        importe: (json['importe'] as num).toDouble(),
+        participacionesTotales:
+            (json['participacionesTotales'] as num).toDouble(),
+        precioMedio: (json['precioMedio'] as num).toDouble(),
+        precioSiguiente: (json['precioSiguiente'] as num).toDouble(),
+        saldoCartera: (json['saldoCartera'] as num).toDouble(),
+      );
+}
+
 /// Una posición del portafolio: participaciones compradas en un proyecto ajeno.
 class Posicion {
   const Posicion({

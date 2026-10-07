@@ -116,6 +116,96 @@ class RepositorioProyectos {
         .toList();
   }
 
+  /// Proyectos publicados de un centro: lo que se puede comprar.
+  ///
+  /// Se pide una sola página grande en lugar de paginar: el mercado es de un
+  /// aula, y así el buscador y el filtro por categoría trabajan sobre la lista
+  /// entera sin ir al servidor en cada pulsación.
+  Future<List<ProyectoDeMercado>> mercado({required int idColegio}) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio.get<Map<String, dynamic>>(
+        '/proyectos',
+        queryParameters: {
+          'idColegio': idColegio,
+          'idEstado': EstadosProyecto.publicado,
+          'size': 200,
+        },
+      );
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 200 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se ha podido cargar el mercado',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return (respuesta.data!['content'] as List<dynamic>)
+        .map((e) => ProyectoDeMercado.desdeJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Precio actual, participaciones libres y recaudado de un proyecto.
+  Future<EstadoDeMercado> estadoDeMercado(int idProyecto) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio
+          .get<Map<String, dynamic>>('/proyectos/$idProyecto/mercado');
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 200 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se ha podido consultar el precio',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return EstadoDeMercado.desdeJson(respuesta.data!);
+  }
+
+  /// Compra participaciones de un proyecto.
+  ///
+  /// Se envía una **intención**: cuántas y a qué precio las vio el alumno. El
+  /// importe y el saldo los calcula el servidor y vuelven en el recibo.
+  ///
+  /// La [claveIdempotencia] la decide quien llama, no este método: tiene que
+  /// sobrevivir a los reintentos del mismo intento de compra.
+  ///
+  /// Un [ErrorApi] **sin código** significa que no llegó respuesta: la compra
+  /// puede haberse hecho o no, y solo se sabe reintentando con la misma clave.
+  Future<ReciboDeInversion> invertir({
+    required int idProyecto,
+    required double participaciones,
+    required double precioUnitarioEsperado,
+    required String claveIdempotencia,
+  }) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio.post<Map<String, dynamic>>(
+        '/inversiones',
+        data: {
+          'idProyecto': idProyecto,
+          'participaciones': participaciones,
+          'precioUnitarioEsperado': precioUnitarioEsperado,
+        },
+        options: Options(headers: {'Idempotency-Key': claveIdempotencia}),
+      );
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 200 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se ha podido completar la compra',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return ReciboDeInversion.desdeJson(respuesta.data!);
+  }
+
   /// Saldo actual de la cartera. Solo lectura: el saldo lo mueve el servidor.
   Future<double> saldo() async {
     final Response<Map<String, dynamic>> respuesta;
