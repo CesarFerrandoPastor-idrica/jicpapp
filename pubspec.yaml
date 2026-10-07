@@ -35,6 +35,14 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
 
+  # Cliente HTTP contra la API. Se elige dio por los interceptores: el JWT y la
+  # renovacion del token se resuelven en un solo sitio y no en cada pantalla.
+  dio: ^5.7.0
+
+  # Almacen cifrado del sistema (Keystore en Android, Keychain en iOS).
+  # SOLO guarda tokens. Nunca saldos: el saldo es del servidor.
+  flutter_secure_storage: ^9.2.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

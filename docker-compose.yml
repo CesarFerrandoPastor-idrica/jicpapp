@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: jicp-postgres
+    environment:
+      POSTGRES_DB: jicp
+      POSTGRES_USER: jicp
+      POSTGRES_PASSWORD: jicp
+    # Solo escucha en localhost: la base de datos nunca se expone a la red.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jicp -d jicp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../api/sesion.dart';
 import 'market_screen.dart';
 import 'learning_screen.dart';
 import 'create_project_screen.dart';
@@ -51,10 +53,7 @@ class _MainNavigationState extends State<MainNavigation> {
                 color: const Color(0xFF151515),
                 onSelected: (value) {
                   if (value == 'logout') {
-                    Navigator.of(context).pushAndRemoveUntil(
-                      MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-                      (route) => false,
-                    );
+                    _cerrarSesion(context);
                   }
                 },
                 itemBuilder: (context) => [
@@ -145,4 +144,17 @@ class _MainNavigationState extends State<MainNavigation> {
       ),
     );
   }
+}
+
+/// Cierra la sesion contra el servidor y vuelve a la pantalla de bienvenida.
+///
+/// Revocar el refresh token en el backend es lo que de verdad cierra la sesion:
+/// borrar los tokens del movil sin avisar dejaria uno valido durante 30 dias.
+Future<void> _cerrarSesion(BuildContext context) async {
+  final navegador = Navigator.of(context);
+  await Sesion.instancia.salir();
+  navegador.pushAndRemoveUntil(
+    MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+    (route) => false,
+  );
 }

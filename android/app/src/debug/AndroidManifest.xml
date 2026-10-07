@@ -4,4 +4,13 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Android bloquea el HTTP sin cifrar desde API 28, y el backend de
+         desarrollo se sirve por http://10.0.2.2:8080 sin certificado.
+
+         Se abre SOLO en la variante de depuracion: este fichero no entra en la
+         build de release, asi que la app publicada sigue exigiendo HTTPS. Si
+         esto estuviera en el manifest principal, cualquiera en la misma red
+         podria leer los tokens de los alumnos en claro. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

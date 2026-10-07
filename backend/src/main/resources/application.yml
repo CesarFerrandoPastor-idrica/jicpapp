@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: jicp-api
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/jicp}
+    username: ${DB_USER:jicp}
+    password: ${DB_PASSWORD:jicp}
+
+  jpa:
+    # El esquema lo gobierna Flyway. Hibernate solo VALIDA que las entidades
+    # coincidan con las tablas: si alguien toca una sin migrar, el arranque falla.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    encoding: UTF-8
+    locations: classpath:db/migration
+
+jicp:
+  seguridad:
+    jwt:
+      # El valor por defecto es de desarrollo y esta en el repositorio a proposito: sirve para
+      # levantar la API sin configurar nada. En cuanto la API salga de localhost, JWT_SECRET
+      # es obligatorio. El arranque avisa por log si se queda con este.
+      secreto: ${JWT_SECRET:desarrollo-local-jicp-secreto-de-firma-cambiame-en-produccion}
+      # Corta porque un access token no se puede revocar antes de que caduque.
+      duracion-access: 15m
+      # Larga porque el refresh si se puede revocar: vive en base de datos y rota en cada uso.
+      duracion-refresh: 30d
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.jicp.api: DEBUG

@@ -1,18 +1,59 @@
 import 'package:flutter/material.dart';
+
+import 'api/modelos_auth.dart';
+import 'api/sesion.dart';
+import 'screens/main_navigation.dart';
+import 'screens/teacher_navigation.dart';
 import 'screens/welcome_screen.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+/// Necesario para poder navegar desde fuera del arbol de widgets: cuando el
+/// servidor invalida la sesion, quien se entera es el interceptor de red, que no
+/// tiene ningun BuildContext a mano.
+final GlobalKey<NavigatorState> navegadorGlobal = GlobalKey<NavigatorState>();
+
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    Sesion.instancia.alExpirarLaSesion = _volverAlAcceso;
+  }
+
+  /// La sesion ha muerto por su cuenta (el refresh dejo de valer, o el servidor
+  /// la corto al detectar un token reutilizado). Se saca al usuario en vez de
+  /// dejarlo en una pantalla que ya no puede cargar nada.
+  void _volverAlAcceso() {
+    final navegador = navegadorGlobal.currentState;
+    if (navegador == null) return;
+
+    navegador.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+      (route) => false,
+    );
+    final messenger = ScaffoldMessenger.maybeOf(navegador.context);
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text('Tu sesión ha caducado. Vuelve a iniciar sesión.'),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'JICP Bolsa Social',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navegadorGlobal,
       themeMode: ThemeMode.dark, // Forzamos modo oscuro
       darkTheme: ThemeData(
         useMaterial3: true,
@@ -39,7 +80,50 @@ class MyApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0A0A0A),
       ),
-      home: const WelcomeScreen(),
+      home: const _Arranque(),
+    );
+  }
+}
+
+/// Decide la primera pantalla segun haya o no una sesion reutilizable.
+///
+/// El rol que manda es el que devuelve `GET /yo`, no nada que estuviera guardado
+/// en el movil: si alguien manipulase el almacen local, el servidor seguiria
+/// diciendo la verdad y la app le llevaria a donde le corresponde.
+class _Arranque extends StatefulWidget {
+  const _Arranque();
+
+  @override
+  State<_Arranque> createState() => _ArranqueState();
+}
+
+class _ArranqueState extends State<_Arranque> {
+  late final Future<Perfil?> _sesionGuardada =
+      Sesion.instancia.recuperarSesionGuardada();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Perfil?>(
+      future: _sesionGuardada,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF0A0A0A),
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFFD4AF37)),
+            ),
+          );
+        }
+
+        // Sin sesion, o con una que el servidor ya no reconoce: a la portada.
+        // Un fallo de red tambien cae aqui, y es lo correcto: sin poder
+        // confirmar quien eres, la app no da por buena ninguna sesion.
+        return switch (snapshot.data?.rol) {
+          Rol.alumno => const MainNavigation(),
+          Rol.profesor || Rol.admin => const TeacherNavigation(),
+          null => const WelcomeScreen(),
+        };
+      },
     );
   }
 }
