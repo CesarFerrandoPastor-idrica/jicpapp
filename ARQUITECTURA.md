@@ -29,6 +29,21 @@ api/cliente_api.dart     dio: pone el token, lo renueva y traduce los errores
    ▼  HTTP
 ```
 
+- **[screens/](lib/screens/)**: una pantalla por archivo. Las conectadas a la API son `login_screen`, `market_screen`, `ficha_proyecto_screen`, `comentarios_screen`, `create_project_screen` y `portfolio_screen`. Todas siguen el mismo patrón:
+  - un `_cargar()` que pide datos;
+  - tres estados: cargando, error y datos;
+  - recarga al deslizar hacia abajo.
+
+  Las demás todavía leen de [mock_data.dart](lib/mock_data.dart).
+- **[sesion.dart](lib/api/sesion.dart)**: un `Notifier` de Riverpod con el estado de la sesión (`EstadoDeSesion`): el perfil (`/yo`), el último saldo y si la sesión ha caducado. `main.dart` escucha esa caducidad para volver a la pantalla de acceso.
+- **[repositorio_auth.dart](lib/api/repositorio_auth.dart)** y **[repositorio_proyectos.dart](lib/api/repositorio_proyectos.dart)**: cada método hace una petición, comprueba el código de respuesta y convierte el JSON en un modelo. Si algo falla, lanza un `ErrorApi` con el mensaje del servidor.
+- **[modelos_*.dart](lib/api/modelos_proyecto.dart)**: clases inmutables con un `desdeJson`, que reflejan lo que devuelve la API (`ProyectoDeMercado`, `ReciboDeInversion`, `Posicion`…).
+- **[cliente_api.dart](lib/api/cliente_api.dart)**: la pieza más técnica. Hace tres cosas:
+  1. Añade `Authorization: Bearer <token>` a cada petición.
+  2. Si recibe un `401`, renueva el token **una sola vez** y repite la petición.
+  3. Convierte los errores del servidor (formato RFC 7807) en un mensaje que se puede enseñar.
+- **[almacen_de_tokens.dart](lib/api/almacen_de_tokens.dart)**: guarda los tokens en el almacén cifrado del sistema. Solo tokens, nunca saldos.
+
 ### Inyección de dependencias con Riverpod
 
 Igual que en el backend Spring crea los servicios y se los pasa a los controladores, en la app lo hace **Riverpod**. Todo el grafo está en [proveedores.dart](lib/api/proveedores.dart):
@@ -48,21 +63,6 @@ almacenDeTokensProvider ─┬─▶ clienteApiProvider ─┬─▶ repositorio
   `ProviderScope(overrides: [repositorioProyectosProvider.overrideWithValue(falso)])`.
   Así se prueba, por ejemplo, que la hoja de compra reintenta con la misma `Idempotency-Key` cuando no llega respuesta.
 - Un detalle de Riverpod 3: tras un `await`, `ref` no se puede usar si la pantalla se ha cerrado. Por eso, cuando hace falta algo después de esperar, se guarda antes (`final sesion = ref.read(sesionProvider.notifier);`).
-
-- **[screens/](lib/screens/)**: una pantalla por archivo. Las conectadas a la API son `login_screen`, `market_screen`, `ficha_proyecto_screen`, `create_project_screen` y `portfolio_screen`. Todas siguen el mismo patrón:
-  - un `_cargar()` que pide datos;
-  - tres estados: cargando, error y datos;
-  - recarga al deslizar hacia abajo.
-
-  Las demás todavía leen de [mock_data.dart](lib/mock_data.dart).
-- **[sesion.dart](lib/api/sesion.dart)**: un `Notifier` de Riverpod con el estado de la sesión (`EstadoDeSesion`): el perfil (`/yo`), el último saldo y si la sesión ha caducado. `main.dart` escucha esa caducidad para volver a la pantalla de acceso.
-- **[repositorio_auth.dart](lib/api/repositorio_auth.dart)** y **[repositorio_proyectos.dart](lib/api/repositorio_proyectos.dart)**: cada método hace una petición, comprueba el código de respuesta y convierte el JSON en un modelo. Si algo falla, lanza un `ErrorApi` con el mensaje del servidor.
-- **[modelos_*.dart](lib/api/modelos_proyecto.dart)**: clases inmutables con un `desdeJson`, que reflejan lo que devuelve la API (`ProyectoDeMercado`, `ReciboDeInversion`, `Posicion`…).
-- **[cliente_api.dart](lib/api/cliente_api.dart)**: la pieza más técnica. Hace tres cosas:
-  1. Añade `Authorization: Bearer <token>` a cada petición.
-  2. Si recibe un `401`, renueva el token **una sola vez** y repite la petición.
-  3. Convierte los errores del servidor (formato RFC 7807) en un mensaje que se puede enseñar.
-- **[almacen_de_tokens.dart](lib/api/almacen_de_tokens.dart)**: guarda los tokens en el almacén cifrado del sistema. Solo tokens, nunca saldos.
 
 ---
 

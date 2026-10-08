@@ -89,21 +89,6 @@ class MockData {
     ),
   ];
 
-  static final List<Project> myProjects = [
-    Project(
-      title: 'Mi StartUp FinTech',
-      creator: 'Elon Musk',
-      price: 120.0,
-      description: 'Una billetera digital que utiliza blockchain para democratizar el acceso a microcréditos educativos.',
-      imageUrl: 'https://picsum.photos/seed/fintech/400/300',
-      category: 'Finanzas',
-      initialInvestment: 2000.0,
-      investmentBreakdown: 'Legales (500), Desarrollo App (1500)',
-      otherUsersInvestment: 0.0,
-      performance: 0.0,
-    )
-  ];
-
   static final List<Course> myCourses = [
     Course(
       title: 'Creación de una Empresa',

@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/sesion.dart';
 import '../mock_data.dart';
-import 'market_screen.dart';
+import 'comments_screen.dart';
 import 'welcome_screen.dart';
 
 class TeacherNavigation extends ConsumerStatefulWidget {
@@ -176,7 +176,7 @@ class _TeacherMarketScreenState extends State<TeacherMarketScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => ProjectDetailScreen(project: project, isTeacher: true),
+                    builder: (context) => ProjectDetailScreen(project: project),
                   ),
                 ),
                 child: Container(
@@ -514,4 +514,227 @@ Future<void> _cerrarSesion(BuildContext context, WidgetRef ref) async {
     MaterialPageRoute(builder: (context) => const WelcomeScreen()),
     (route) => false,
   );
+}
+
+/// Ficha de proyecto del profesor, con datos simulados (`MockData`).
+///
+/// El alumno ya no pasa por aquí: entra a [FichaProyectoScreen], que habla con la
+/// API. Esta se irá cuando el mercado del profesor se conecte también.
+class ProjectDetailScreen extends StatelessWidget {
+  final Project project;
+
+  const ProjectDetailScreen({super.key, required this.project});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F0F),
+      body: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300,
+            pinned: true,
+            backgroundColor: const Color(0xFF0F0F0F),
+            leading: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: CircleAvatar(
+                backgroundColor: Colors.black.withOpacity(0.4),
+                child: IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ),
+            flexibleSpace: FlexibleSpaceBar(
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Hero(
+                    tag: 'image_${project.title}',
+                    child: Image.network(
+                      project.imageUrl,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(project.title, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                            Text('Por ${project.creator}', style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 18, fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD4AF37).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFD4AF37).withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          project.category,
+                          style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Descripción del Proyecto', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    project.description,
+                    style: const TextStyle(color: Colors.white70, fontSize: 16, height: 1.6),
+                  ),
+                  const SizedBox(height: 40),
+                  
+                  _buildSectionTitle('Finanzas y Capital'),
+                  const SizedBox(height: 16),
+                  _buildDetailRow('Inversión Inicial (Creación)', '${project.initialInvestment} JICP', Icons.rocket_launch),
+                  _buildDetailRow('Desglose de Gastos', project.investmentBreakdown, Icons.list_alt),
+                  _buildDetailRow('Capital Aportado por Usuarios', '${project.otherUsersInvestment} JICP', Icons.group),
+                  _buildDetailRow('Inversión Total Acumulada', '${project.totalInvestment} JICP', Icons.account_balance, isHighlight: true),
+                  
+                  const SizedBox(height: 24),
+                  _buildSectionTitle('Mercado de Acciones'),
+                  const SizedBox(height: 16),
+                  _buildDetailRow('Precio Actual por Acción', '${project.price} JICP', Icons.monetization_on),
+                  
+                  Row(
+                    children: [
+                      const Icon(Icons.trending_up, color: Colors.white54, size: 20),
+                      const SizedBox(width: 12),
+                      const Text('Rendimiento (Últ. Semanas): ', style: TextStyle(color: Colors.white54, fontSize: 15)),
+                      Text(
+                        '${project.performance > 0 ? '+' : ''}${project.performance}%',
+                        style: TextStyle(
+                          color: project.performance >= 0 ? Colors.greenAccent : Colors.redAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  
+                  const SizedBox(height: 32),
+                  _buildSectionTitle('Comunidad'),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => CommentsScreen(project: project)),
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF151515),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.comment_outlined, color: Color(0xFFD4AF37), size: 24),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Comentarios:', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                                Text('Ver lo que otros dicen sobre este proyecto', style: TextStyle(color: Colors.white38, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 32),
+                  _buildSectionTitle('Valoración del Profesor'),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) => IconButton(
+                      icon: const Icon(Icons.star_border, color: Color(0xFFD4AF37), size: 40),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Has valorado este proyecto con ${index + 1} estrellas')),
+                        );
+                      },
+                    )),
+                  ),
+                  const SizedBox(height: 40),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(color: Color(0xFFD4AF37), fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+        const SizedBox(height: 4),
+        Container(width: 40, height: 2, color: const Color(0xFFD4AF37)),
+      ],
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, IconData icon, {bool isHighlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: isHighlight ? const Color(0xFFD4AF37) : Colors.white24, size: 20),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: isHighlight ? const Color(0xFFD4AF37) : Colors.white,
+                    fontSize: 17,
+                    fontWeight: isHighlight ? FontWeight.bold : FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
 }

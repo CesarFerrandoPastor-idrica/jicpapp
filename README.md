@@ -56,7 +56,7 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | Contabilidad de JICP | ✅ Implementada | Doble partida, bloqueo pesimista, idempotencia y `CHECK` de saldo. Con test de concurrencia |
 | Mercado de participaciones | ✅ Implementado | Crear proyecto con inversión inicial, invertir con precio variable y comentar |
 | Layout adaptativo tablet | ⏳ Pendiente | Actualmente optimizado para móvil |
-| Tests | 🚧 En curso | 49 de integración en el backend (Testcontainers) y 20 en Flutter (login, mercado e `Idempotency-Key`, con repositorio falso) |
+| Tests | 🚧 En curso | 49 de integración en el backend (Testcontainers) y 31 en Flutter (login, mercado, `Idempotency-Key` y comentarios, con repositorios falsos) |
 
 ---
 
@@ -453,16 +453,17 @@ jicpapp/
 │       ├── welcome_screen.dart        # Landing con propuesta de valor
 │       ├── login_screen.dart          # Acceso real contra la API (email + contraseña)
 │       ├── main_navigation.dart       # Shell de navegación del alumno
-│       ├── market_screen.dart         # Mercado del centro contra la API (+ ficha mock del profesor)
+│       ├── market_screen.dart         # Mercado del centro contra la API
 │       ├── ficha_proyecto_screen.dart # Ficha real del proyecto y hoja de compra
+│       ├── comentarios_screen.dart    # Hilo de comentarios contra la API, paginado
 │       ├── learning_screen.dart       # Cursos y progreso
 │       ├── portfolio_screen.dart      # Mis proyectos e invertidos, contra la API
 │       ├── create_project_screen.dart # Alta de proyecto contra la API
 │       ├── profile_screen.dart        # Perfil del alumno
-│       ├── wallet_detail_screen.dart  # Movimientos de la cartera
-│       ├── investment_detail_screen.dart # Historial de compras/ventas
-│       ├── comments_screen.dart       # Comentarios de un proyecto
-│       └── teacher_navigation.dart    # Shell del profesor + mercado, cursos, ranking, perfil
+│       ├── wallet_detail_screen.dart  # Movimientos de la cartera (mock, sin acceso hasta el paso 3)
+│       ├── investment_detail_screen.dart # Historial de compras/ventas (mock, sin acceso hasta el paso 3)
+│       ├── comments_screen.dart       # Comentarios mock; solo los usa la ficha del profesor
+│       └── teacher_navigation.dart    # Shell del profesor + mercado, ficha, cursos, ranking y perfil (mock)
 ├── assets/logo.png
 ├── android/ ios/ web/ windows/ macos/ linux/
 └── pubspec.yaml
@@ -507,8 +508,8 @@ jicpapp/
 | Pantalla | Qué hace | Estado |
 |---|---|---|
 | **Mercado** | Proyectos publicados del centro, con buscador y filtro por categoría (catálogo del servidor) | ✅ Conectado a la API |
-| **Detalle de proyecto** | Descripción, precio actual, ronda, recaudado, inversores, tu posición y hoja de compra | ✅ Conectado a la API; faltan los comentarios |
-| **Comentarios** | Hilo de comentarios por proyecto | UI lista |
+| **Detalle de proyecto** | Descripción, precio actual, ronda, recaudado, inversores, tu posición y hoja de compra | ✅ Conectado a la API |
+| **Comentarios** | Hilo de comentarios del proyecto, paginado, con los propios marcados | ✅ Conectado a la API |
 | **Cursos** | Cursos asignados con barra de progreso | UI lista |
 | **Portafolio** | Proyectos propios (con su rol y progreso de ronda) e inversiones en ajenos, con plusvalía | ✅ Conectado a la API |
 | **Cartera (wallet)** | Saldo en JICP e historial de movimientos (inversión, creación, recarga, venta) | UI lista |
@@ -525,10 +526,10 @@ La migración de `MockData` a la API va pantalla a pantalla. Este es el corte ex
 | **Crear proyecto** | ✅ Conectada | Patente e imagen no tienen columna en el backend; el desglose se adjunta a la descripción |
 | **Portafolio** | ✅ Conectada | Las tarjetas no navegan: el detalle sigue en mock |
 | **Mercado** | ✅ Conectado | — |
-| **Detalle de proyecto** | ✅ Conectado | Ficha real y compra con `Idempotency-Key`. **Falta** el enlace a comentarios |
+| **Detalle de proyecto** | ✅ Conectado | Ficha real, compra con `Idempotency-Key` y enlace a comentarios |
 | **Wallet / movimientos** | ⏳ `MockData` | `GET /cartera/movimientos` ya existe y está paginado |
 | **Detalle de inversión** | ⏳ `MockData` | Historial de compras de una posición |
-| **Comentarios** | ⏳ `MockData` | **Es lo siguiente.** El backend ya lo soporta entero (`GET/POST /proyectos/{id}/comentarios`) |
+| **Comentarios** | ✅ Conectado | — |
 | **Cursos** | ⏳ `MockData` | No hay backend todavía |
 | **Perfil** | ⏳ `MockData` | `GET /yo` ya devuelve los datos reales |
 | **Todo el profesor** | ⏳ `MockData` | Cursos y ranking no tienen backend |
@@ -536,10 +537,12 @@ La migración de `MockData` a la API va pantalla a pantalla. Este es el corte ex
 Notas para retomarlo:
 
 - Las tarjetas del Portafolio **todavía no navegan**: la ficha real (`FichaProyectoScreen`) ya existe, pero recibe un `ProyectoDeMercado` y el Portafolio tiene `ProyectoConRol`/`Posicion`. Falta pedir `GET /proyectos/{id}` al tocar la tarjeta.
-- La ficha del alumno es `FichaProyectoScreen`. `ProjectDetailScreen` (mock) sigue viva **solo** porque la usa el mercado del profesor.
+- La ficha del alumno es `FichaProyectoScreen`. `ProjectDetailScreen` (mock) vive ya en `teacher_navigation.dart`, sin las partes de alumno, porque solo la usa el mercado del profesor. Lo mismo pasa con `CommentsScreen` (mock) frente a `ComentariosScreen` (API).
+- `WalletDetailScreen` e `InvestmentDetailScreen` no se pueden abrir desde ningún sitio desde que el Portafolio pasó a la API. Se conservan como diseño de referencia para el paso de la wallet; al conectarla se sustituyen y se borra su mock.
+- Los comentarios se leen de 20 en 20. Si alguien comenta mientras se lee, la página siguiente llega desplazada; la pantalla descarta los repetidos por id.
 - La hoja de compra genera una `Idempotency-Key` por intento. Si el servidor responde con error, la compra no se hizo y el siguiente intento lleva clave nueva. Si **no llega respuesta**, bloquea la cantidad y solo deja *reintentar* con la misma clave: nunca da por fallida una compra sin respuesta.
 - El fundador aparece en `/portafolio` con las participaciones de sus propios proyectos, porque las tiene de verdad. El Portafolio las separa al pintar (filtrando por los ids de sus proyectos) en lugar de pedirle al servidor que las oculte. Cualquier pantalla nueva que use `/portafolio` tiene que tener esto en cuenta.
-- Endpoints ya disponibles y sin usar todavía desde la app: `/proyectos/{id}/inversores`, `/cartera/movimientos`, `/proyectos/{id}/comentarios`.
+- Endpoints ya disponibles y sin usar todavía desde la app: `/proyectos/{id}/inversores`, `/cartera/movimientos`.
 
 ### Profesor
 
@@ -1080,8 +1083,8 @@ La app fuerza `ThemeMode.dark` y usa Material 3. Pendiente para tablet: puntos d
 - [x] Portafolio contra la API: proyectos propios con su rol, e inversiones con plusvalía
 - [x] Mercado contra la API: proyectos publicados del centro y compra de participaciones
 - [x] Detalle de proyecto: ficha real y hoja de compra
-- [ ] **Comentarios del proyecto** contra la API ← siguiente
-- [ ] Tarjetas del Portafolio que abran la ficha real
+- [x] Comentarios del proyecto contra la API
+- [ ] **Tarjetas del Portafolio que abran la ficha real** ← siguiente
 - [ ] Wallet y detalle de inversión desde `/cartera/movimientos`
 - [ ] Perfil desde `GET /yo`
 - [x] `Idempotency-Key` en las compras, con reintento seguro ante respuestas perdidas

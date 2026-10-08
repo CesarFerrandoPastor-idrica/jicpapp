@@ -206,6 +206,53 @@ class RepositorioProyectos {
     return ReciboDeInversion.desdeJson(respuesta.data!);
   }
 
+  /// Una página del hilo de comentarios de un proyecto, los más recientes primero.
+  Future<PaginaDeComentarios> comentarios(
+    int idProyecto, {
+    int pagina = 0,
+    int tamano = 20,
+  }) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio.get<Map<String, dynamic>>(
+        '/proyectos/$idProyecto/comentarios',
+        queryParameters: {'page': pagina, 'size': tamano},
+      );
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 200 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se han podido cargar los comentarios',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return PaginaDeComentarios.desdeJson(respuesta.data!);
+  }
+
+  /// Publica un comentario. El autor no se envía: lo saca el servidor del token,
+  /// y es él quien comprueba que el proyecto sea del mismo centro.
+  Future<Comentario> comentar(int idProyecto, String texto) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio.post<Map<String, dynamic>>(
+        '/proyectos/$idProyecto/comentarios',
+        data: {'texto': texto.trim()},
+      );
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 201 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se ha podido publicar el comentario',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return Comentario.desdeJson(respuesta.data!);
+  }
+
   /// Saldo actual de la cartera. Solo lectura: el saldo lo mueve el servidor.
   Future<double> saldo() async {
     final Response<Map<String, dynamic>> respuesta;

@@ -294,6 +294,58 @@ class ReciboDeInversion {
       );
 }
 
+/// Un comentario del hilo de un proyecto.
+class Comentario {
+  const Comentario({
+    required this.id,
+    required this.idAlumno,
+    required this.autor,
+    required this.texto,
+    required this.fecha,
+  });
+
+  final int id;
+
+  /// Quién lo escribió. Sirve para marcar los propios en el hilo.
+  final int idAlumno;
+  final String autor;
+  final String texto;
+
+  /// Hora del servidor (sin zona). Solo se usa para pintar "hace 5 min".
+  final DateTime fecha;
+
+  factory Comentario.desdeJson(Map<String, dynamic> json) => Comentario(
+        id: json['id'] as int,
+        idAlumno: json['idAlumno'] as int,
+        autor: '${json['nombre']} ${json['apellido']}',
+        texto: json['texto'] as String,
+        fecha: DateTime.parse(json['fecha'] as String),
+      );
+}
+
+/// Una página del hilo de comentarios, del más reciente al más antiguo.
+class PaginaDeComentarios {
+  const PaginaDeComentarios({
+    required this.comentarios,
+    required this.total,
+    required this.esLaUltima,
+  });
+
+  final List<Comentario> comentarios;
+  final int total;
+  final bool esLaUltima;
+
+  /// Lee la envoltura `Page` de Spring.
+  factory PaginaDeComentarios.desdeJson(Map<String, dynamic> json) =>
+      PaginaDeComentarios(
+        comentarios: (json['content'] as List<dynamic>)
+            .map((e) => Comentario.desdeJson(e as Map<String, dynamic>))
+            .toList(),
+        total: json['totalElements'] as int,
+        esLaUltima: json['last'] as bool,
+      );
+}
+
 /// Una posición del portafolio: participaciones compradas en un proyecto ajeno.
 class Posicion {
   const Posicion({

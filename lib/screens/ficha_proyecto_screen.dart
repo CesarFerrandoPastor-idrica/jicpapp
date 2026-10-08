@@ -6,6 +6,7 @@ import '../api/modelos_auth.dart';
 import '../api/modelos_proyecto.dart';
 import '../api/proveedores.dart';
 import '../api/sesion.dart';
+import 'comentarios_screen.dart';
 import 'market_screen.dart' show iconoDeCategoria;
 
 const _dorado = Color(0xFFD4AF37);
@@ -301,10 +302,59 @@ class _FichaProyectoScreenState extends ConsumerState<FichaProyectoScreen> {
         _tuPosicion(_miPosicion!),
         const SizedBox(height: 32),
       ],
+      _tituloDeSeccion('Comunidad'),
+      const SizedBox(height: 16),
+      _enlaceAComentarios(),
+      const SizedBox(height: 32),
       _botonDeCompra(m),
       const SizedBox(height: 24),
     ];
   }
+
+  Widget _enlaceAComentarios() => Material(
+        color: _superficie,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ComentariosScreen(
+                idProyecto: _proyecto.id,
+                nombreProyecto: _proyecto.nombre,
+              ),
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.comment_outlined, color: _dorado, size: 24),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Comentarios',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold)),
+                      Text('Lo que opina tu clase de este proyecto',
+                          style: TextStyle(color: Colors.white38, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios, color: Colors.white24, size: 16),
+              ],
+            ),
+          ),
+        ),
+      );
 
   Widget _tuPosicion(Posicion p) {
     final gana = p.plusvalia >= 0;
