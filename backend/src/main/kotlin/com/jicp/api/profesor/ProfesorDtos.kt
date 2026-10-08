@@ -2,6 +2,8 @@ package com.jicp.api.profesor
 
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
+import jakarta.validation.constraints.Positive
 import jakarta.validation.constraints.Size
 import java.time.LocalDateTime
 
@@ -23,8 +25,14 @@ data class CrearProfesorRequest(
     @field:Size(min = 8, max = 72, message = "entre 8 y 72 caracteres")
     val password: String,
 
-    // El colegio NO se envia: se hereda del profesor que da el alta. Aceptarlo aqui
-    // dejaria que un docente crease companeros en un centro que no es el suyo.
+    /**
+     * El centro donde imparte. Viene en la peticion porque las altas son de ADMIN, que no
+     * pertenece a ningun centro. Mientras daba de alta otro profesor se heredaba del suyo;
+     * si eso vuelve, este campo tendra que ignorarse para el profesorado.
+     */
+    @field:NotNull(message = "el colegio es obligatorio")
+    @field:Positive(message = "identificador de colegio invalido")
+    val idColegio: Int,
 )
 
 data class ActualizarProfesorRequest(

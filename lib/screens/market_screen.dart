@@ -10,7 +10,10 @@ import 'ficha_proyecto_screen.dart';
 const _dorado = Color(0xFFD4AF37);
 const _superficie = Color(0xFF151515);
 
-/// Mercado del alumno: los proyectos publicados de su centro.
+/// Mercado: los proyectos publicados del centro de quien mira.
+///
+/// Lo usan alumnado y profesorado. El centro lo garantiza el servidor, que a ambos
+/// les devuelve solo los de su colegio aunque se pida otro.
 ///
 /// La lista se pide entera una vez y el buscador y las categorías filtran en
 /// local. Las categorías vienen del servidor, igual que en Crear proyecto, para
@@ -40,10 +43,10 @@ class _MarketScreenState extends ConsumerState<MarketScreen> {
   }
 
   Future<void> _cargar() async {
-    final idColegio = ref.read(sesionProvider).alumno?.idColegio;
+    final idColegio = ref.read(sesionProvider).idColegio;
     if (idColegio == null) {
       setState(() {
-        _error = 'Esta pantalla es del alumnado';
+        _error = 'Esta cuenta no pertenece a ningún centro';
         _cargando = false;
       });
       return;

@@ -29,7 +29,7 @@ api/cliente_api.dart     dio: pone el token, lo renueva y traduce los errores
    ▼  HTTP
 ```
 
-- **[screens/](lib/screens/)**: una pantalla por archivo. Las conectadas a la API son `login_screen`, `market_screen`, `ficha_proyecto_screen`, `comentarios_screen`, `create_project_screen` y `portfolio_screen`. Todas siguen el mismo patrón:
+- **[screens/](lib/screens/)**: una pantalla por archivo. Casi todas hablan ya con la API; solo el perfil del alumno, la wallet y el detalle de inversión siguen en `MockData`. Algunas las comparten alumno y profesor (`market_screen`, `ficha_proyecto_screen`, `comentarios_screen`) y adaptan lo que muestran según el rol de la sesión. Todas siguen el mismo patrón:
   - un `_cargar()` que pide datos;
   - tres estados: cargando, error y datos;
   - recarga al deslizar hacia abajo.
@@ -87,6 +87,8 @@ Los módulos:
 |---|---|
 | `colegio/`, `alumno/`, `profesor/` | Centros y personas |
 | `proyecto/` | Proyectos, equipo (creador/socio/colaborador), catálogos y comentarios |
+| `curso/` | Cursos del profesorado y su asignación al alumnado (matrículas) |
+| `ranking/` | Clasificación del alumnado de un centro, calculada en el servidor |
 | `seguridad/` | Usuarios, login, JWT, renovación de tokens y quién puede entrar a qué |
 | `contabilidad/` | **El dinero.** Cuentas, operaciones y apuntes. Es el núcleo crítico |
 | `inversion/` | Comprar participaciones, el precio de mercado y el portafolio |
@@ -99,7 +101,7 @@ Los módulos:
 Petición HTTP
   │
   ▼  seguridad/FiltroJwt.kt          lee el token y sabe QUIÉN eres (id de usuario y rol)
-  ▼  seguridad/SeguridadConfig.kt    ¿esta ruta exige token?  → si no lo traes, 401
+  ▼  seguridad/SeguridadConfig.kt    todo exige token salvo login y Swagger → si no lo traes, 401
   ▼  XxxController.kt                @PreAuthorize("hasRole('ALUMNO')") → si no lo eres, 403
   │                                  saca tu id de alumno DEL TOKEN, nunca del JSON
   ▼  XxxService.kt                   @Transactional: valida las reglas y hace el trabajo
@@ -111,6 +113,18 @@ Petición HTTP
 
 Ese `detail` es el texto que luego enseña la app. Por eso los mensajes de error de la app están en español y son concretos: los escribe el servidor.
 
+### Quién puede hacer qué
+
+Hay dos filtros, uno detrás de otro:
+
+1. **¿Tienes sesión?** Lo decide `SeguridadConfig`. Todo está **cerrado por defecto**: solo el login, la renovación de token, Swagger y `/actuator/health` se pueden llamar sin token. Un endpoint nuevo nace cerrado sin que haya que acordarse.
+2. **¿Tu rol alcanza?** Lo decide `@PreAuthorize` en cada método del controlador:
+   - `hasRole('ALUMNO')`: comprar, fundar proyectos, comentar, ver tu cartera.
+   - `hasRole('ADMIN')`: dar de alta colegios, alumnos y profesores. Hoy esas cuentas son de los desarrolladores; mañana, de alguien de la empresa desde una web.
+   - Sin anotación: cualquiera con sesión (por ejemplo, leer el mercado).
+
+El primer `ADMIN` no puede crearse por la API (haría falta ser admin), así que lo crea [AdminInicial.kt](backend/src/main/kotlin/com/jicp/api/seguridad/AdminInicial.kt) al arrancar si se definen `JICP_ADMIN_INICIAL_EMAIL` y `_PASSWORD`.
+
 ### La regla de oro del dinero
 
 **Solo [ContabilidadService.kt](backend/src/main/kotlin/com/jicp/api/contabilidad/ContabilidadService.kt) toca saldos.** Los demás módulos le piden operaciones ("pasa 330 JICP de la cartera de Diego a la tesorería del proyecto 3"), pero ninguno escribe un saldo por su cuenta. Así las garantías se cumplen en un solo sitio.
@@ -119,11 +133,12 @@ Ese `detail` es el texto que luego enseña la app. Por eso los mensajes de error
 
 ## 3. La base de datos
 
-- **El esquema lo crean las migraciones** de [db/migration/](backend/src/main/resources/db/migration/), de `V1` a `V6`. Flyway las aplica en orden al arrancar. Una migración que ya se aplicó no se edita nunca: los cambios van en una `V7` nueva.
+- **El esquema lo crean las migraciones** de [db/migration/](backend/src/main/resources/db/migration/), de `V1` a `V8`. Flyway las aplica en orden al arrancar. Una migración que ya se aplicó no se edita nunca: los cambios van en una `V9` nueva.
 - Hibernate arranca en modo `validate`: si una entidad Kotlin no coincide con su tabla, la API **no arranca**. Así no se corrompen datos en silencio.
 - Las tablas, por grupos:
   - **Identidad**: `usuario` (email, contraseña y rol) → de ella cuelgan `alumno` y `profesor`. También `refresh_token`.
   - **Proyectos**: `proyecto`, `alumno_proyecto` (quién está y con qué rol) y los catálogos.
+  - **Aula**: `curso` (lo crea un profesor) y `matricula` (a qué alumnos se asigna, con su progreso).
   - **Dinero**:
     - `cuenta`: una por alumno (cartera), una por proyecto (tesorería) y una del sistema (emisión).
     - `operacion_jicp`: cada operación, con su clave de idempotencia.
@@ -167,7 +182,7 @@ Ese `detail` es el texto que luego enseña la app. Por eso los mensajes de error
 ## 6. Si quieres cambiar algo, dónde ir
 
 - **Un endpoint nuevo**: `XxxController` → `XxxService` → `XxxDtos`, y un test en `backend/src/test/`.
-- **Una columna o tabla**: una migración `V7__….sql` nueva, y después la entidad Kotlin.
+- **Una columna o tabla**: una migración `V9__….sql` nueva, y después la entidad Kotlin.
 - **Una pantalla nueva contra la API**: un método en el repositorio de `lib/api/`, su modelo con `desdeJson`, y una pantalla `ConsumerStatefulWidget` con el patrón `_cargar()` del Portafolio o el Mercado, pidiendo el repositorio con `ref.read(...)`.
 - **Una dependencia nueva** (otro repositorio, por ejemplo): un `Provider` más en [proveedores.dart](lib/api/proveedores.dart).
 - **Las reglas exactas que aplica el servidor**: los tests de [MercadoTest.kt](backend/src/test/kotlin/com/jicp/api/MercadoTest.kt) y [AutenticacionTest.kt](backend/src/test/kotlin/com/jicp/api/AutenticacionTest.kt). Sus nombres son frases ("un alumno no puede invertir en su propio proyecto") y sirven de especificación.

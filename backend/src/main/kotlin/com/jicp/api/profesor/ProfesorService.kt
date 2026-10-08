@@ -1,6 +1,8 @@
 package com.jicp.api.profesor
 
+import com.jicp.api.colegio.ColegioService
 import com.jicp.api.seguridad.Rol
+import com.jicp.api.seguridad.UsuarioAutenticado
 import com.jicp.api.seguridad.Usuario
 import com.jicp.api.seguridad.UsuarioRepository
 import com.jicp.api.shared.ConflictoException
@@ -17,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional
 class ProfesorService(
     private val repositorio: ProfesorRepository,
     private val usuarios: UsuarioRepository,
+    private val colegios: ColegioService,
     private val passwordEncoder: PasswordEncoder,
 ) {
 
@@ -32,19 +35,14 @@ class ProfesorService(
     fun obtener(id: Int): ProfesorResponse = buscarOFallar(id).toResponse()
 
     /**
-     * Da de alta a un companero de claustro.
+     * Da de alta a un profesor en el centro indicado.
      *
-     * A un profesor lo crea otro profesor: no hay figura de administrador en este
-     * producto, asi que inventarle un rol solo para custodiar este endpoint seria
-     * anadir una persona que no existe en ningun sitio de la aplicacion.
-     *
-     * El centro **se hereda de quien da el alta** y no se acepta en la peticion, igual
-     * que el colegio de un proyecto sale de su alumno creador: si viniera en el body,
-     * un docente podria darse de alta companeros en un centro que no es el suyo.
+     * Las altas son de ADMIN (lo comprueba @PreAuthorize en el controlador): de momento
+     * las hacen los desarrolladores y mas adelante alguien de la empresa desde la web.
      */
     @Transactional
-    fun crear(peticion: CrearProfesorRequest, idUsuarioActor: Int): ProfesorResponse {
-        val actor = actorOFallar(idUsuarioActor)
+    fun crear(peticion: CrearProfesorRequest): ProfesorResponse {
+        val colegio = colegios.buscarOFallar(peticion.idColegio)
 
         // En minusculas para que el login no dependa de como escriba el email quien lo teclea.
         val email = peticion.email.trim().lowercase()
@@ -64,23 +62,25 @@ class ProfesorService(
                 passwordHash = passwordEncoder.encode(peticion.password),
                 rol = Rol.PROFESOR,
             ),
-            colegio = actor.colegio,
+            colegio = colegio,
         )
         return repositorio.save(profesor).toResponse()
     }
 
-    /** Solo se edita a alguien del propio centro. */
+    /** Un admin edita a cualquiera; un profesor, solo a alguien de su propio centro. */
     @Transactional
     fun actualizar(
         id: Int,
         peticion: ActualizarProfesorRequest,
-        idUsuarioActor: Int,
+        actor: UsuarioAutenticado,
     ): ProfesorResponse {
-        val actor = actorOFallar(idUsuarioActor)
         val profesor = buscarOFallar(id)
 
-        if (profesor.colegio.id != actor.colegio.id) {
-            throw SinPermisoException("Solo puedes editar profesorado de tu propio centro")
+        if (actor.rol != Rol.ADMIN) {
+            val suyo = actorOFallar(actor.idUsuario)
+            if (profesor.colegio.id != suyo.colegio.id) {
+                throw SinPermisoException("Solo puedes editar profesorado de tu propio centro")
+            }
         }
 
         profesor.nombre = peticion.nombre.trim()

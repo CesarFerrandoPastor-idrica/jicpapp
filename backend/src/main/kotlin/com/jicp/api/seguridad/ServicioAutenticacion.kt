@@ -4,7 +4,9 @@ import com.jicp.api.alumno.AlumnoRepository
 import com.jicp.api.alumno.toResponse
 import com.jicp.api.profesor.ProfesorRepository
 import com.jicp.api.profesor.toResponse
+import com.jicp.api.shared.ConflictoException
 import com.jicp.api.shared.CredencialesInvalidasException
+import com.jicp.api.shared.SinPermisoException
 import org.slf4j.LoggerFactory
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
@@ -97,6 +99,45 @@ class ServicioAutenticacion(
         if (token.fechaRevocacion == null) {
             token.fechaRevocacion = LocalDateTime.now()
         }
+    }
+
+    /**
+     * Cambia el email y/o la contrasena del usuario del token.
+     *
+     * - La contrasena actual tiene que ser correcta (si no, `403`; no `401`, que la app
+     *   interpretaria como sesion caducada e intentaria renovar el token).
+     * - El email sigue siendo unico en todo el sistema (`409` si ya lo usa otro).
+     * - Si cambia la contrasena, se revocan **todas** sus sesiones: si alguien se la
+     *   habia robado, la pierde. La app vuelve a entrar con la nueva.
+     */
+    @Transactional
+    fun actualizarMiCuenta(autenticado: UsuarioAutenticado, peticion: ActualizarMiCuentaRequest): PerfilResponse {
+        val usuario = usuarios.findById(autenticado.idUsuario)
+            .orElseThrow { CredencialesInvalidasException() }
+
+        if (!passwordEncoder.matches(peticion.passwordActual, usuario.passwordHash)) {
+            throw SinPermisoException("La contrasena actual no es correcta")
+        }
+
+        val emailNuevo = peticion.email?.trim()?.lowercase()?.ifBlank { null }
+        val passwordNueva = peticion.passwordNueva?.ifBlank { null }
+        if ((emailNuevo == null || emailNuevo == usuario.email) && passwordNueva == null) {
+            throw ConflictoException("No hay nada que cambiar")
+        }
+
+        if (emailNuevo != null && emailNuevo != usuario.email) {
+            if (usuarios.existsByEmail(emailNuevo)) {
+                throw ConflictoException("Ya existe un usuario registrado con el email $emailNuevo")
+            }
+            usuario.email = emailNuevo
+        }
+
+        if (passwordNueva != null) {
+            usuario.passwordHash = passwordEncoder.encode(passwordNueva)
+            refrescos.revocarSesionesDe(requireNotNull(usuario.id), LocalDateTime.now())
+        }
+
+        return perfil(autenticado)
     }
 
     fun perfil(autenticado: UsuarioAutenticado): PerfilResponse {

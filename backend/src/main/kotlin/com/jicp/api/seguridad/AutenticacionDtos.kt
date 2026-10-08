@@ -17,6 +17,25 @@ data class LoginRequest(
     val password: String,
 )
 
+/**
+ * Cambios en la propia cuenta: email y contrasena. El nombre y los apellidos no estan
+ * aqui a proposito: no los cambia el propio usuario.
+ *
+ * La contrasena actual se exige siempre. Sin ella, quien encontrase el movil de otro con
+ * la sesion abierta podria cambiarle el email o la contrasena y quedarse con la cuenta.
+ */
+data class ActualizarMiCuentaRequest(
+    @field:NotBlank(message = "escribe tu contrasena actual")
+    val passwordActual: String,
+
+    @field:Email(message = "formato de email invalido")
+    @field:Size(max = 255, message = "maximo 255 caracteres")
+    val email: String? = null,
+
+    @field:Size(min = 8, max = 72, message = "entre 8 y 72 caracteres")
+    val passwordNueva: String? = null,
+)
+
 data class RefrescarRequest(
     @field:NotBlank(message = "el refresh token es obligatorio")
     val refreshToken: String,

@@ -44,19 +44,19 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | Área | Estado | Detalle |
 |---|---|---|
 | UI alumno (Flutter) | ✅ Implementada | Mercado, cursos, portafolio, crear proyecto, perfil, wallet, comentarios |
-| UI profesor (Flutter) | ✅ Implementada | Mercado, gestión de cursos, ranking de alumnos, perfil |
+| UI profesor (Flutter) | ✅ Conectada | Mercado de su centro, ficha en solo lectura, cursos (crear y asignar), ranking y perfil, contra la API |
 | Navegación y tema | ✅ Implementados | Tema oscuro + dorado, bottom nav por rol |
-| Datos | ⚠️ Mixtos | Login, mercado (con compra), crear proyecto y portafolio usan la API; el resto de pantallas sigue en `MockData` |
+| Datos | ⚠️ Casi todo real | Todo usa la API salvo el perfil del alumno, la wallet y el detalle de inversión, que siguen en `MockData` |
 | Autenticación | ✅ Conectada | La pantalla de login llama a la API; el rol y la navegación los decide el servidor. Alumno **y profesor** |
-| Backend (Kotlin + Spring Boot) | 🚧 En curso | Módulos `colegio`, `alumno`, `profesor`, `proyecto`, `seguridad`, `contabilidad` e `inversion` |
-| Base de datos (PostgreSQL) | 🚧 En curso | Migraciones Flyway `V1` a `V6`: esquema, catálogos, equipo, usuario, profesorado y **libro contable** |
+| Backend (Kotlin + Spring Boot) | 🚧 En curso | Módulos `colegio`, `alumno`, `profesor`, `proyecto`, `seguridad`, `contabilidad`, `inversion`, `curso` y `ranking` |
+| Base de datos (PostgreSQL) | 🚧 En curso | Migraciones Flyway `V1` a `V8`: esquema, catálogos, equipo, usuario, profesorado, **libro contable**, cursos y comentarios del profesorado |
 | Equipo de proyecto | ✅ Implementado | Creador único, socios y colaboradores, con las reglas en el servidor |
 | Autenticación JWT | ✅ Implementado | Login, refresh rotativo y `/yo`. Contraseñas con BCrypt sobre la tabla `usuario` |
-| Cierre de la API | 🚧 En curso | Exigen token `/yo`, cartera, portafolio, inversiones, alta de proyectos y comentarios, y alta/edición de profesorado; el resto del CRUD sigue abierto hasta que Flutter migre pantalla a pantalla |
+| Cierre de la API | ✅ Fase 1 | Todo exige token salvo login/refresh/logout, Swagger y `/actuator/health`. Las altas de colegios, alumnos y profesores son de `ADMIN`. **Fase 2 pendiente**: permisos finos (solo el creador edita su proyecto, lecturas limitadas al propio centro) |
 | Contabilidad de JICP | ✅ Implementada | Doble partida, bloqueo pesimista, idempotencia y `CHECK` de saldo. Con test de concurrencia |
 | Mercado de participaciones | ✅ Implementado | Crear proyecto con inversión inicial, invertir con precio variable y comentar |
 | Layout adaptativo tablet | ⏳ Pendiente | Actualmente optimizado para móvil |
-| Tests | 🚧 En curso | 49 de integración en el backend (Testcontainers) y 31 en Flutter (login, mercado, `Idempotency-Key` y comentarios, con repositorios falsos) |
+| Tests | 🚧 En curso | 71 de integración en el backend (Testcontainers) y 47 en Flutter (login, mercado, `Idempotency-Key`, comentarios, aula y perfil, con repositorios falsos) |
 
 ---
 
@@ -71,6 +71,7 @@ No hay dinero real en ninguna parte del sistema: **JICP es una divisa exclusivam
 | UI | Material 3, tema oscuro forzado | Definido en `lib/main.dart` |
 | Estado e inyección | ✅ **Riverpod** 3 | Proveedores en `lib/api/proveedores.dart`; la sesión es un `Notifier`. Las pantallas piden sus dependencias con `ref` y los tests las sustituyen con `overrides` |
 | Navegación | Actualmente `Navigator` imperativo → migrar a **go_router** | Necesario para deep links y guards por rol |
+| Enlaces externos | ✅ **url_launcher** | Abre los enlaces de los cursos en el navegador del sistema |
 | HTTP | ✅ **dio** + interceptor de JWT | Renueva el token al recibir un `401`. Las compras mandan `Idempotency-Key` (`lib/api/idempotencia.dart`) |
 | Serialización | **freezed** + **json_serializable** | Modelos inmutables desde el contrato de la API |
 | Almacenamiento seguro | ✅ **flutter_secure_storage** | Solo tokens. **Nunca saldos** |
@@ -148,10 +149,11 @@ com.jicp.api
 ├── proyecto/         # proyectos + catálogos de categoría y estado             ✅
 ├── seguridad/        # usuario, JWT, refresh rotativo, filtros                 ✅
 ├── profesor/         # profesorado y su centro                                 ✅
-├── curso/            # cursos, lecciones, matrículas, progreso                 ⏳
+├── curso/            # cursos y matrículas (lecciones y progreso, pendientes)   ✅
+├── ranking/          # clasificación del alumnado de un centro                 ✅
 ├── inversion/        # compras, posiciones y precio de mercado                  ✅
 ├── contabilidad/     # cuentas, operaciones y apuntes en JICP ← núcleo crítico ✅
-└── evaluacion/       # ejercicios, entregas, notas, ranking                    ⏳
+└── evaluacion/       # ejercicios, entregas, notas, valoraciones               ⏳
 ```
 
 El módulo `contabilidad` es el único que escribe en `cuenta` y `apunte_jicp`. El resto le piden operaciones semánticas; ninguno modifica un saldo por su cuenta. Esa concentración es lo que permite garantizar de verdad las tres invariantes: doble partida, saldo no negativo e idempotencia.
@@ -443,7 +445,9 @@ jicpapp/
 │   │   ├── cliente_api.dart           # dio + interceptor de JWT y renovación
 │   │   ├── almacen_de_tokens.dart     # flutter_secure_storage; solo tokens
 │   │   ├── modelos_auth.dart          # Rol, Tokens, Perfil, ErrorApi
-│   │   ├── modelos_proyecto.dart      # Catalogo, ProyectoCreado, ProyectoConRol, Posicion
+│   │   ├── modelos_proyecto.dart      # Catalogo, ProyectoDeMercado, ReciboDeInversion, Comentario, Posicion…
+│   │   ├── modelos_aula.dart          # Curso, EntradaDeRanking, AlumnoDelCentro
+│   │   ├── repositorio_aula.dart      # cursos · crear curso · ranking · alumnado del centro
 │   │   ├── repositorio_auth.dart      # login · refresh · logout · /yo
 │   │   ├── idempotencia.dart          # UUID v4 para la cabecera Idempotency-Key
 │   │   ├── repositorio_proyectos.dart # categorías · crear · mercado · invertir · portafolio · saldo
@@ -456,14 +460,17 @@ jicpapp/
 │       ├── market_screen.dart         # Mercado del centro contra la API
 │       ├── ficha_proyecto_screen.dart # Ficha real del proyecto y hoja de compra
 │       ├── comentarios_screen.dart    # Hilo de comentarios contra la API, paginado
-│       ├── learning_screen.dart       # Cursos y progreso
+│       ├── learning_screen.dart       # Cursos asignados al alumno, contra la API
 │       ├── portfolio_screen.dart      # Mis proyectos e invertidos, contra la API
 │       ├── create_project_screen.dart # Alta de proyecto contra la API
 │       ├── profile_screen.dart        # Perfil del alumno
 │       ├── wallet_detail_screen.dart  # Movimientos de la cartera (mock, sin acceso hasta el paso 3)
 │       ├── investment_detail_screen.dart # Historial de compras/ventas (mock, sin acceso hasta el paso 3)
-│       ├── comments_screen.dart       # Comentarios mock; solo los usa la ficha del profesor
-│       └── teacher_navigation.dart    # Shell del profesor + mercado, ficha, cursos, ranking y perfil (mock)
+│       ├── cursos_profesor_screen.dart # Cursos del profesor y formulario para crear y asignar
+│       ├── ranking_screen.dart        # Ranking del alumnado del centro
+│       ├── editar_cuenta_screen.dart  # Cambiar el propio email o la contraseña
+│       ├── enlace_de_curso.dart       # Enlace pulsable de un curso (url_launcher)
+│       └── teacher_navigation.dart    # Shell del profesor + su perfil
 ├── assets/logo.png
 ├── android/ ios/ web/ windows/ macos/ linux/
 └── pubspec.yaml
@@ -493,7 +500,7 @@ jicpapp/
 │       │   └── seguridad/              # usuario, JWT, refresh rotativo, filtro y config
 │       ├── main/resources/
 │       │   ├── application.yml
-│       │   └── db/migration/           # V1__esquema_inicial.sql … V6__contabilidad.sql
+│       │   └── db/migration/           # V1__esquema_inicial.sql … V8__comentarios_del_profesorado.sql
 │       └── test/kotlin/com/jicp/api/   # Testcontainers + MockMvc
 ├── docker-compose.yml                  # PostgreSQL local
 └── docs/                               # (pendiente) OpenAPI y decisiones (ADR)
@@ -510,7 +517,7 @@ jicpapp/
 | **Mercado** | Proyectos publicados del centro, con buscador y filtro por categoría (catálogo del servidor) | ✅ Conectado a la API |
 | **Detalle de proyecto** | Descripción, precio actual, ronda, recaudado, inversores, tu posición y hoja de compra | ✅ Conectado a la API |
 | **Comentarios** | Hilo de comentarios del proyecto, paginado, con los propios marcados | ✅ Conectado a la API |
-| **Cursos** | Cursos asignados con barra de progreso | UI lista |
+| **Cursos** | Cursos que le ha asignado su profesor, con su progreso | ✅ Conectado a la API (el progreso aún no se puede avanzar) |
 | **Portafolio** | Proyectos propios (con su rol y progreso de ronda) e inversiones en ajenos, con plusvalía | ✅ Conectado a la API |
 | **Cartera (wallet)** | Saldo en JICP e historial de movimientos (inversión, creación, recarga, venta) | UI lista |
 | **Crear proyecto** | Título, descripción, categoría, inversión inicial, precio base y tamaño de ronda | ✅ Conectada a la API: descuenta el saldo y emite participaciones |
@@ -530,14 +537,14 @@ La migración de `MockData` a la API va pantalla a pantalla. Este es el corte ex
 | **Wallet / movimientos** | ⏳ `MockData` | `GET /cartera/movimientos` ya existe y está paginado |
 | **Detalle de inversión** | ⏳ `MockData` | Historial de compras de una posición |
 | **Comentarios** | ✅ Conectado | — |
-| **Cursos** | ⏳ `MockData` | No hay backend todavía |
+| **Cursos** | ✅ Conectado | Falta que el alumno pueda avanzar su progreso |
 | **Perfil** | ⏳ `MockData` | `GET /yo` ya devuelve los datos reales |
-| **Todo el profesor** | ⏳ `MockData` | Cursos y ranking no tienen backend |
+| **Profesor: mercado, ficha, cursos, ranking y perfil** | ✅ Conectado | Faltan la valoración con estrellas y los ejercicios, que no tienen backend |
 
 Notas para retomarlo:
 
 - Las tarjetas del Portafolio **todavía no navegan**: la ficha real (`FichaProyectoScreen`) ya existe, pero recibe un `ProyectoDeMercado` y el Portafolio tiene `ProyectoConRol`/`Posicion`. Falta pedir `GET /proyectos/{id}` al tocar la tarjeta.
-- La ficha del alumno es `FichaProyectoScreen`. `ProjectDetailScreen` (mock) vive ya en `teacher_navigation.dart`, sin las partes de alumno, porque solo la usa el mercado del profesor. Lo mismo pasa con `CommentsScreen` (mock) frente a `ComentariosScreen` (API).
+- `MarketScreen`, `FichaProyectoScreen` y `ComentariosScreen` las comparten alumnado y profesorado. La ficha mira el rol: al profesor no le pide cartera ni portafolio (el servidor se los negaría) y no le enseña la compra. La ficha y los comentarios de mentira (`ProjectDetailScreen`, `CommentsScreen`) ya no existen.
 - `WalletDetailScreen` e `InvestmentDetailScreen` no se pueden abrir desde ningún sitio desde que el Portafolio pasó a la API. Se conservan como diseño de referencia para el paso de la wallet; al conectarla se sustituyen y se borra su mock.
 - Los comentarios se leen de 20 en 20. Si alguien comenta mientras se lee, la página siguiente llega desplazada; la pantalla descarta los repetidos por id.
 - La hoja de compra genera una `Idempotency-Key` por intento. Si el servidor responde con error, la compra no se hizo y el siguiente intento lleva clave nueva. Si **no llega respuesta**, bloquea la cantidad y solo deja *reintentar* con la misma clave: nunca da por fallida una compra sin respuesta.
@@ -548,11 +555,11 @@ Notas para retomarlo:
 
 | Pantalla | Qué hace | Estado |
 |---|---|---|
-| **Mercado** | Vista del catálogo de proyectos del alumnado | UI lista |
-| **Gestión de cursos** | Listado de cursos, creación de curso y asignación a alumnos concretos | UI lista |
-| **Ejercicios** | Añadir ejercicios a un curso | Placeholder (snackbar) |
-| **Ranking** | Clasificación por puntuación de inversión y valoración en estrellas | UI lista |
-| **Perfil** | Datos del docente, centro educativo, distintivo de verificación | UI lista |
+| **Mercado** | Proyectos de **su** centro (el servidor lo garantiza) y ficha en solo lectura. **Puede comentar**, y sus comentarios salen con la etiqueta *Profesor* | ✅ Conectado |
+| **Gestión de cursos** | Sus cursos, creación de uno nuevo asignado a alumnos de su centro y **edición** del contenido (título, descripción y enlace) | ✅ Conectado |
+| **Ejercicios** | Añadir ejercicios a un curso | ⏳ Sin backend; el botón se ha retirado |
+| **Ranking** | Alumnado de su centro ordenado por rentabilidad (patrimonio frente a saldo inicial) | ✅ Conectado; sin estrellas hasta que exista la valoración |
+| **Perfil** | Nombre, centro y email, de `GET /yo`. **Editar perfil** cambia el email o la contraseña (nunca el nombre), siempre confirmando con la contraseña actual | ✅ Conectado |
 
 ---
 
@@ -560,7 +567,7 @@ Notas para retomarlo:
 
 Nomenclatura: tablas y columnas en **español y singular**, claves primarias `id_<tabla>` de tipo `SERIAL`, importes en `NUMERIC(12,2)`. Las entidades Kotlin usan los mismos nombres para que no haya capa de traducción mental entre el código y la BBDD.
 
-### Implementado — migraciones `V1` a `V6`
+### Implementado — migraciones `V1` a `V7`
 
 ```mermaid
 erDiagram
@@ -585,6 +592,9 @@ erDiagram
     OPERACION_JICP ||--o| MOVIMIENTO_INVERSION : respalda
     ALUMNO ||--o{ COMENTARIO_PROYECTO : escribe
     PROYECTO ||--o{ COMENTARIO_PROYECTO : recibe
+    PROFESOR ||--o{ CURSO : imparte
+    CURSO ||--o{ MATRICULA : asigna
+    ALUMNO ||--o{ MATRICULA : cursa
 ```
 
 | Tabla | Campos |
@@ -600,7 +610,9 @@ erDiagram
 | `apunte_jicp` | `id_apunte`, `id_operacion`, `id_cuenta`, `importe`, `saldo_posterior`. **Append-only** |
 | `inversion` | `id_inversion`, `id_proyecto`, `id_alumno`, `participaciones NUMERIC(14,4)`, `precio_medio` — único por `(proyecto, alumno)` |
 | `movimiento_inversion` | `id_movimiento`, `id_inversion`, `id_operacion`, `tipo`, `participaciones`, `precio_unitario`, `importe` |
-| `comentario_proyecto` | `id_comentario`, `id_proyecto`, `id_alumno`, `texto`, `fecha_registro` |
+| `comentario_proyecto` | `id_comentario`, `id_proyecto`, `id_alumno` **o** `id_profesor` (exactamente uno, `CHECK un_solo_autor`), `texto`, `fecha_registro` |
+| `curso` | `id_curso`, `titulo`, `descripcion`, `url_recurso` (opcional, solo http/https), `id_profesor`. El centro es el del profesor: no se duplica |
+| `matricula` | `id_curso` + `id_alumno` (PK compuesta), `progreso NUMERIC(5,2)` de 0 a 100 |
 | `alumno_proyecto` | `id_alumno` + `id_proyecto` (PK compuesta), `id_rol` → `rol_proyecto` |
 | `categoria_proyecto` | `id_categoria`, `nombre` (único), `descripcion` — catálogo |
 | `estado_proyecto` | `id_estado`, `nombre` (único), `descripcion` — catálogo |
@@ -641,7 +653,7 @@ CREATE UNIQUE INDEX ux_un_creador_por_proyecto
 
 Por eso los ids del catálogo `rol_proyecto` se fijan a mano en la migración: PostgreSQL exige que el predicado de un índice sea inmutable, así que no admite una subconsulta a `rol_proyecto` y el `1` tiene que ser literal.
 
-`jicp_inicial` es la **concesión inicial**, no el saldo actual. Al dar de alta al alumno se registra como una operación `CONCESION_INICIAL` contra la cuenta `EMISION_SISTEMA`; a partir de ahí el saldo vive en su `cuenta` y es la suma de sus apuntes.
+`jicp_inicial` es la **concesión inicial**, no el saldo actual. **La fija el servidor y es igual para todos**: 500.000 JICP (`JICP_SALDO_INICIAL`). Quien da de alta a un alumno no puede elegirla; si la petición trae `jicpInicial`, se ignora. Al dar de alta al alumno se registra como una operación `CONCESION_INICIAL` contra la cuenta `EMISION_SISTEMA`; a partir de ahí el saldo vive en su `cuenta` y es la suma de sus apuntes.
 
 Los catálogos vienen sembrados por migración: cinco categorías que coinciden con los filtros del mercado de la app (Tecnología, Salud, Finanzas, Educación, Media), tres estados (Borrador, Publicado, Cerrado) y los tres roles.
 
@@ -650,10 +662,10 @@ Los catálogos vienen sembrados por migración: cinco categorías que coinciden 
 | Tabla | Campos destacados |
 |---|---|
 | `valoracion_proyecto` | `id_valoracion`, `id_proyecto`, `id_profesor`, `estrellas (1-5)` — único por `(id_proyecto, id_profesor)` |
-| `curso` · `leccion` · `matricula` | Cursos del profesor, contenido y progreso del alumno |
+| `leccion` | Contenido de cada curso |
 | `ejercicio` · `entrega` | Enunciados, respuestas, nota y feedback |
 
-Con la contabilidad en marcha, lo que queda por delante son los **cursos** (lecciones, matrículas, ejercicios y entregas), la **valoración del profesorado** y la **desinversión**. Ver [Roadmap](#roadmap).
+Lo que queda por delante: **lecciones, ejercicios y entregas** de los cursos, la **valoración del profesorado** (las estrellas del ranking) y la **desinversión**. Ver [Roadmap](#roadmap).
 
 ### Reglas de negocio en el servidor
 
@@ -661,7 +673,7 @@ Con la contabilidad en marcha, lo que queda por delante son los **cursos** (lecc
 - **El proyecto se bloquea antes que las cuentas**, y siempre en ese orden. El precio depende de `participaciones_emitidas`, que se muta en la misma operación: sin ese bloqueo, dos compras simultáneas leerían las mismas emitidas, pagarían ambas el precio viejo y podrían pasarse del tamaño de la ronda.
 - La creación de un proyecto descuenta la inversión inicial del alumno, la acredita en la tesorería del proyecto y le emite participaciones al precio base. Si no tiene saldo, el proyecto **no llega a existir**: fundar sin fondos no deja un proyecto a medias.
 - El saldo nunca puede ser negativo (garantizado por `CHECK`, no solo por código).
-- La puntuación del ranking se calcula en el servidor a partir del valor de la cartera y la media de `valoracion_proyecto`. El cliente no envía puntuaciones.
+- El ranking lo calcula el servidor: **rentabilidad** de cada alumno, es decir, su patrimonio (saldo + participaciones a precio de hoy) frente a su saldo inicial. Se ordena por porcentaje y no por cantidad porque los alumnos antiguos empezaron con saldos distintos. Cuando exista `valoracion_proyecto`, entrará también la media de estrellas. El cliente no envía puntuaciones.
 - Un profesor solo accede a alumnos y cursos de su propio centro educativo.
 
 ---
@@ -672,7 +684,9 @@ Prefijo: `/api/v1`. Documentación viva en `http://localhost:8080/swagger-ui.htm
 
 ### Disponible ahora
 
-> ⚠️ **Cierre parcial.** Los endpoints marcados con 🔒 exigen token; el resto del CRUD sigue abierto a propósito, porque las pantallas que aún no están migradas no mandan token y cerrarlos de golpe las dejaría sin backend. Se irán cerrando pantalla a pantalla.
+> 🔒 **Todo exige token** (`Authorization: Bearer …`) salvo `/auth/login`, `/auth/refresh`, `/auth/logout`, Swagger y `/actuator/health`. La regla por defecto es *cerrado*: un endpoint nuevo nace con token obligatorio y solo se abre a propósito en `SeguridadConfig`. Sin token, `401`; con token pero sin el rol necesario, `403`.
+>
+> La columna **Quién** dice qué rol hace falta además de estar autenticado. Donde no pone nada, basta con cualquier usuario con sesión. La fase 2 acotará más (por ejemplo, que solo el creador edite su proyecto).
 
 | Método | Endpoint | Descripción |
 |---|---|---|
@@ -680,20 +694,21 @@ Prefijo: `/api/v1`. Documentación viva en `http://localhost:8080/swagger-ui.htm
 | `POST` | `/api/v1/auth/refresh` | `{refreshToken}` → par nuevo. **Rota**: el presentado queda revocado |
 | `POST` | `/api/v1/auth/logout` | `{refreshToken}` → `204`. Revoca el refresh; el access vive hasta caducar |
 | `GET` | 🔒 `/api/v1/yo` | Perfil del usuario del token, con sus datos de alumno si lo es |
+| `PATCH` | 🔒 `/api/v1/yo` | `{passwordActual, email?, passwordNueva?}`. Cambia el propio email o la contraseña; el nombre no. Contraseña actual mala: `403`. Cambiar la contraseña **cierra todas las sesiones** del usuario |
 | `GET` | `/api/v1/colegios?nombre=&page=&size=` | Listado paginado, filtro por nombre |
 | `GET` | `/api/v1/colegios/{id}` | Detalle |
-| `POST` | `/api/v1/colegios` | Alta |
-| `PUT` | `/api/v1/colegios/{id}` | Edición |
+| `POST` | `/api/v1/colegios` | **ADMIN.** Alta |
+| `PUT` | `/api/v1/colegios/{id}` | **ADMIN.** Edición |
 | `GET` | `/api/v1/alumnos?idColegio=` | Listado paginado, filtro por colegio |
 | `GET` | `/api/v1/alumnos/{id}` | Detalle (nunca devuelve la contraseña) |
-| `POST` | `/api/v1/alumnos` | Alta con hash BCrypt; crea su `usuario` y hace de registro. `409` si el email ya existe |
-| `PUT` | `/api/v1/alumnos/{id}` | Edición de nombre y apellido |
+| `POST` | `/api/v1/alumnos` | **ADMIN.** Alta con hash BCrypt: crea su `usuario`, su cartera y le concede el saldo inicial fijo. `409` si el email ya existe |
+| `PUT` | `/api/v1/alumnos/{id}` | **ADMIN.** Edición de nombre y apellido |
 | `GET` | `/api/v1/alumnos/{id}/proyectos` | Proyectos en los que participa, con su rol en cada uno |
 | `GET` | `/api/v1/profesores?idColegio=` | Listado paginado, filtro por centro |
 | `GET` | `/api/v1/profesores/{id}` | Detalle (nunca devuelve la contraseña) |
-| `POST` | 🔒 `/api/v1/profesores` | **Solo un profesor.** Alta de un compañero en su propio centro; `409` si el email ya existe |
-| `PUT` | 🔒 `/api/v1/profesores/{id}` | **Solo un profesor**, y solo sobre alguien de su mismo centro |
-| `GET` | `/api/v1/proyectos?idColegio=&idCategoria=&idEstado=` | Mercado paginado con filtros opcionales, cada uno con su creador |
+| `POST` | `/api/v1/profesores` | **ADMIN.** Alta en el centro indicado (`idColegio`); `409` si el email ya existe |
+| `PUT` | `/api/v1/profesores/{id}` | **ADMIN**, o un **profesor** sobre alguien de su mismo centro |
+| `GET` | `/api/v1/proyectos?idColegio=&idCategoria=&idEstado=` | Mercado paginado, cada uno con su creador. **Alumno y profesor reciben siempre los de su centro**: `idColegio` solo lo respeta para un ADMIN |
 | `GET` | `/api/v1/proyectos/{id}` | Detalle con categoría, estado, colegio y creador |
 | `POST` | 🔒 `/api/v1/proyectos` | **Solo alumno.** El creador sale del token; descuenta la inversión inicial y abre la tesorería |
 | `PUT` | `/api/v1/proyectos/{id}` | Edición |
@@ -711,7 +726,11 @@ Prefijo: `/api/v1`. Documentación viva en `http://localhost:8080/swagger-ui.htm
 | `GET` | `/api/v1/proyectos/{id}/mercado` | Precio actual, emitidas, disponibles y recaudado |
 | `GET` | `/api/v1/proyectos/{id}/inversores` | Quién tiene participaciones del proyecto |
 | `GET` | `/api/v1/proyectos/{id}/comentarios` | Hilo de comentarios, paginado |
-| `POST` | 🔒 `/api/v1/proyectos/{id}/comentarios` | **Solo alumno**, y de su propio centro |
+| `POST` | 🔒 `/api/v1/proyectos/{id}/comentarios` | **Alumno o profesor**, de su propio centro. La respuesta dice si lo escribió un profesor (`deProfesor`) |
+| `GET` | `/api/v1/cursos` | **Profesor o alumno.** Los cursos que imparte el profesor (con nº de alumnos) o los asignados al alumno (con su progreso) |
+| `POST` | `/api/v1/cursos` | **Solo profesor.** `{titulo, descripcion, urlRecurso?, idsAlumnos}`; los alumnos tienen que ser de su centro (si no, `403` y no se crea nada) |
+| `PUT` | `/api/v1/cursos/{id}` | **Solo el profesor que lo imparte.** Cambia título, descripción y enlace; los alumnos asignados no se tocan |
+| `GET` | `/api/v1/ranking` | **Solo profesor.** Alumnado de su centro ordenado por rentabilidad |
 
 Reglas que aplica el servidor sobre el equipo, todas devolviendo `409`:
 
@@ -722,12 +741,15 @@ Reglas que aplica el servidor sobre el equipo, todas devolviendo `409`:
 
 Reglas sobre el profesorado:
 
-- **A un profesor lo da de alta otro profesor.** No hay figura de administrador en este producto —la app solo tiene alumnado y profesorado—, así que custodiar el endpoint con un rol `ADMIN` sería inventarse una persona que no existe en ninguna pantalla.
-- **El centro se hereda de quien da el alta**, igual que el colegio de un proyecto sale de su alumno creador. No se envía en la petición: si viniera en el body, un docente podría darse de alta compañeros en un centro que no es el suyo.
+- **Las altas de profesorado son de `ADMIN`**, igual que las de alumnado y colegios. Como un admin no pertenece a ningún centro, el colegio viaja en la petición (`idColegio`).
 - Editar a alguien de otro centro devuelve `403`, no `404`: el recurso existe, lo que falta es permiso.
 - Un token de alumno sobre estos endpoints devuelve `403`; sin token, `401`.
 
-Estos dos endpoints están cerrados mientras el resto del CRUD sigue abierto, y es deliberado: **dejar abierta la creación de credenciales no es lo mismo que dejar abierta la lectura de un catálogo**.
+### Quién da de alta a quién
+
+De momento **solo los desarrolladores**, con una cuenta `ADMIN`: colegios, alumnos y profesores. Ni el alumnado ni el profesorado pueden registrarse ni registrar a nadie.
+
+Los endpoints de alta existen igualmente y están protegidos, porque el producto puede evolucionar: que el profesorado dé de alta a su clase, que el alumnado se registre, o que lo haga una web externa o una persona de la empresa sin conocimientos técnicos desde una interfaz de administración. Cambiar quién puede es tocar el `@PreAuthorize` de cada endpoint (y su test en `AltasTest`), no abrir un camino nuevo.
 
 Los listados devuelven la envoltura `Page` de Spring (`content`, `totalElements`, `totalPages`, `number`, `size`) y aceptan `?page=0&size=20&sort=campo,asc`.
 
@@ -814,7 +836,7 @@ Decisiones y su porqué:
 
 El `403` y el `401` salen también en `application/problem+json`: los rechazos de Spring Security ocurren en la cadena de filtros, antes de que exista controlador, así que tienen su propio `AuthenticationEntryPoint` en lugar de caer en la página de error HTML por defecto.
 
-> **Todavía no existe `POST /auth/registro`.** El alta de alumno (`POST /api/v1/alumnos`) ya crea su `usuario`, así que hacer un segundo camino para crear credenciales solo añadiría superficie que asegurar. El profesorado ya existe, pero ese endpoint **sigue abierto**: queda pendiente que pase a exigir rol de profesor.
+> **No existe `POST /auth/registro`.** Las cuentas se crean con `POST /api/v1/alumnos` y `POST /api/v1/profesores`, ambos de `ADMIN`. Un segundo camino para crear credenciales solo añadiría superficie que asegurar.
 
 ### Diseño completo
 
@@ -827,7 +849,7 @@ Autenticación por **JWT Bearer**; refresh token rotativo. Todos los endpoints m
 | ✅ `POST` | `/auth/refresh` | público | Rota el refresh y renueva el access token |
 | ✅ `POST` | `/auth/logout` | público | Revoca el refresh token |
 | ✅ `GET` | `/yo` | autenticado | Perfil del usuario del token, con su bloque de alumno o de profesor |
-| `PATCH` | `/yo` | autenticado | Editar el propio perfil |
+| ✅ `PATCH` | `/yo` | autenticado | Cambiar el propio email o la contraseña |
 | ✅ `GET` | `/proyectos/{id}/comentarios` | público | Comentarios |
 | ✅ `POST` | `/proyectos/{id}/comentarios` | alumno | Comentar |
 | `POST` | `/proyectos/{id}/valoraciones` | profesor | Valorar con estrellas |
@@ -837,14 +859,14 @@ Autenticación por **JWT Bearer**; refresh token rotativo. Todos los endpoints m
 | ✅ `GET` | `/cartera/movimientos` | alumno | Apuntes del libro contable, paginados |
 | ✅ `GET` | `/portafolio` | alumno | Posiciones valoradas a precio de hoy |
 | `POST` | 🔑 `/admin/ajustes` | admin | Ajuste manual → queda como `AJUSTE_ADMIN` firmado |
-| `GET` | `/cursos` | autenticado | Cursos del alumno / del profesor |
-| `POST` | `/cursos` | profesor | Crear curso |
-| `POST` | `/cursos/{id}/matriculas` | profesor | Asignar curso a alumnos |
+| ✅ `GET` | `/cursos` | profesor · alumno | Cursos del alumno / del profesor |
+| ✅ `POST` | `/cursos` | profesor | Crear curso y asignarlo a alumnos de su centro |
+| `POST` | `/cursos/{id}/matriculas` | profesor | Asignar un curso existente a más alumnos |
 | `PATCH` | `/matriculas/{id}/progreso` | alumno | Actualizar progreso |
 | `POST` | `/cursos/{id}/ejercicios` | profesor | Añadir ejercicio |
 | `POST` | `/ejercicios/{id}/entregas` | alumno | Entregar ejercicio |
 | `PATCH` | `/entregas/{id}` | profesor | Calificar y dar feedback |
-| `GET` | `/ranking` | autenticado | Ranking de aula/centro (calculado en servidor) |
+| ✅ `GET` | `/ranking` | profesor | Ranking del centro (calculado en servidor) |
 
 El `POST /proyectos` ya descuenta la inversión inicial de la cartera del autor. Todavía **no** exige 🔑: la clave natural es el propio id del proyecto, que no existe hasta haberlo creado, así que la idempotencia de esa alta necesita su propia vuelta.
 
@@ -937,7 +959,7 @@ Detalles que conviene saber:
 
 - **Android bloquea el HTTP sin cifrar desde API 28.** El permiso está abierto **solo** en `android/app/src/debug/AndroidManifest.xml`, que no entra en las builds de release: la app publicada sigue exigiendo HTTPS. Si estuviera en el manifest principal, cualquiera en la misma red podría leer los tokens en claro.
 - **En web hay CORS.** El backend permite orígenes de `localhost` en cualquier puerto (Flutter web usa uno aleatorio). Cualquier otro origen recibe `403`. Se amplía con la variable `CORS_ORIGENES`.
-- **Un móvil físico contra tu PC** necesita además abrir el puerto 8080 en el firewall, y que ambos estén en la misma red. Ten en cuenta que los CRUD siguen sin autenticación.
+- **Un móvil físico contra tu PC** necesita además abrir el puerto 8080 en el firewall, y que ambos estén en la misma red. Toda la API exige token, así que no queda expuesta sin más en la red local.
 
 ### Qué hace la app con la sesión
 
@@ -974,9 +996,27 @@ El login de profesor ya funciona igual que el de alumno: mismo formulario, mismo
    ./gradlew test
    ```
 
-#### El primer profesor
+#### El primer administrador
 
-Si a un profesor solo lo puede dar de alta otro profesor, el primero no puede nacer por la API. La salida habitual —dejar el endpoint abierto «solo al principio»— deja una puerta que nadie se acuerda de cerrar después, así que aquí la abre **quien administra el servidor, no quien llega por red**:
+Las altas son de `ADMIN`, así que el primer admin no puede nacer por la API. Lo crea **quien administra el servidor**, con variables de entorno:
+
+```bash
+JICP_ADMIN_INICIAL_EMAIL=dev@jicp.example \
+JICP_ADMIN_INICIAL_PASSWORD=una-contrasena-larga \
+./gradlew bootRun
+```
+
+Solo actúa si **no existe ningún admin**, así que no sirve para colar una cuenta en un sistema en marcha. Después se quitan las variables y todo lo demás (colegios, alumnos, profesores) se da de alta por la API con el token de ese admin.
+
+En PowerShell las variables se ponen así, y solo duran lo que esa ventana:
+
+```powershell
+$env:JICP_ADMIN_INICIAL_EMAIL='dev@jicp.example'; $env:JICP_ADMIN_INICIAL_PASSWORD='una-contrasena-larga'; .\gradlew.bat bootRun
+```
+
+#### El primer profesor (opcional)
+
+Ya no hace falta: el admin da de alta al profesorado. Se conserva por si se quiere sembrar uno al instalar. Como antes, el primero no puede nacer por la API. La salida habitual —dejar el endpoint abierto «solo al principio»— deja una puerta que nadie se acuerda de cerrar después, así que aquí la abre **quien administra el servidor, no quien llega por red**:
 
 ```bash
 JICP_PROFESOR_INICIAL_EMAIL=jefatura@ies.example \
@@ -985,7 +1025,7 @@ JICP_PROFESOR_INICIAL_ID_COLEGIO=1 \
 ./gradlew bootRun
 ```
 
-Solo se ejecuta si **no existe ningún profesor todavía**, de modo que no sirve para colar una cuenta en un sistema ya en marcha. Hace falta poder poner variables de entorno en la máquina, que es precisamente la barrera que se busca. A partir de ahí, las altas van por `POST /api/v1/profesores`.
+Solo se ejecuta si **no existe ningún profesor todavía**. Hasta el 2026-10-08 estas variables no llegaban a la aplicación (el código leía otro nombre); ahora se enlazan explícitamente en `application.yml`.
 
 La contraseña no vive en el repositorio ni en ninguna migración a propósito: **una credencial versionada es una credencial pública**.
 
@@ -998,32 +1038,34 @@ Configuración por variables de entorno, con valores por defecto para desarrollo
 | `DB_PASSWORD` | `jicp` |
 | `SERVER_PORT` | `8080` |
 | `JWT_SECRET` | secreto de desarrollo (mínimo 32 bytes; **obligatorio fuera de localhost**) |
+| `JICP_ADMIN_INICIAL_EMAIL` · `_PASSWORD` | vacío — crea el primer admin solo si no hay ninguno |
 | `JICP_PROFESOR_INICIAL_EMAIL` · `_PASSWORD` · `_ID_COLEGIO` | vacío — crea el primer profesor solo si no hay ninguno |
+| `JICP_SALDO_INICIAL` | `500000.00` — lo que recibe cada alumno al darse de alta |
 | `CORS_ORIGENES` | vacío — orígenes extra permitidos, además de `localhost` |
 
-Prueba rápida de humo:
+Prueba rápida de humo, con el admin creado al arrancar:
 
 ```bash
-curl http://localhost:8080/api/v1/categorias
+API=http://localhost:8080/api/v1
 
-curl -X POST http://localhost:8080/api/v1/colegios \
-  -H "Content-Type: application/json" \
+# Sin token, todo cerrado
+curl -i $API/categorias                       # 401
+
+ADMIN=$(curl -s -X POST $API/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"dev@jicp.example","password":"una-contrasena-larga"}' | jq -r .accessToken)
+
+# El admin da de alta un colegio y un alumno
+curl -X POST $API/colegios -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   -d '{"nombre":"IES Ejemplo","direccion":"Calle Mayor 1","email":"info@ies.example"}'
-```
 
-Y el circuito completo de login: alta de alumno, entrada y consulta del propio perfil.
-
-```bash
-curl -X POST http://localhost:8080/api/v1/alumnos \
-  -H "Content-Type: application/json" \
+curl -X POST $API/alumnos -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   -d '{"nombre":"Ana","apellido":"Martinez","email":"ana@ies.example",
-       "password":"contrasena-larga","idColegio":1,"jicpInicial":10000.00}'
+       "password":"contrasena-larga","idColegio":1}'
 
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
+# Ana entra y consulta su perfil: tiene los 500.000 JICP fijos
+TOKEN=$(curl -s -X POST $API/auth/login -H "Content-Type: application/json" \
   -d '{"email":"ana@ies.example","password":"contrasena-larga"}' | jq -r .accessToken)
-
-curl http://localhost:8080/api/v1/yo -H "Authorization: Bearer $TOKEN"
+curl $API/yo -H "Authorization: Bearer $TOKEN"
 ```
 
 > El esquema lo gobierna Flyway y Hibernate arranca con `ddl-auto: validate`: si una entidad deja de coincidir con su tabla, la aplicación **no arranca** en vez de corromper datos en silencio. Cada cambio de modelo necesita su migración `V…__descripcion.sql`; las migraciones ya aplicadas no se editan nunca.
@@ -1064,14 +1106,18 @@ La app fuerza `ThemeMode.dark` y usa Material 3. Pendiente para tablet: puntos d
 - [x] Autenticación JWT: login, refresh rotativo con detección de reutilización, logout y `/yo`
 - [x] Tabla `profesor` y su CRUD, de la que dependen cursos, evaluación y ranking
 - [x] Alta y edición de profesorado cerradas con `@PreAuthorize` y centro tomado del token
-- [ ] Cerrar el resto de CRUD con `@PreAuthorize` y tomar el actor del token en vez del body
+- [x] API cerrada por defecto; altas de colegios, alumnos y profesores solo de `ADMIN`; saldo inicial fijo
+- [ ] **Permisos finos (fase 2)**: solo el creador edita su proyecto y su equipo; lecturas limitadas al propio centro
 - [x] Módulo de contabilidad: cuentas, doble partida, bloqueo pesimista e idempotencia
 - [x] Restricciones `CHECK` de saldo y consultas de reconciliación (como test)
 - [x] Mercado: crear proyecto con inversión inicial, invertir con precio variable y comentar
 - [x] Test de concurrencia: 50 compras simultáneas con saldo para una
 - [ ] Job de reconciliación programado (`@Scheduled`) con alerta
 - [ ] Desinversión: vender participaciones
-- [ ] Cursos, lecciones, matrículas, ejercicios y entregas
+- [x] Cursos y matrículas: el profesor crea y asigna; el alumno ve los suyos
+- [x] Ranking del centro calculado en el servidor
+- [ ] Lecciones, progreso del alumno, ejercicios y entregas
+- [ ] Valoración del profesorado (estrellas) y su peso en el ranking
 - [ ] OpenAPI publicado y versionado en `docs/`
 
 **Fase 3 — Integración (actual)**
@@ -1084,6 +1130,8 @@ La app fuerza `ThemeMode.dark` y usa Material 3. Pendiente para tablet: puntos d
 - [x] Mercado contra la API: proyectos publicados del centro y compra de participaciones
 - [x] Detalle de proyecto: ficha real y hoja de compra
 - [x] Comentarios del proyecto contra la API
+- [x] Profesor contra la API: mercado de su centro, ficha en solo lectura, cursos, ranking y perfil
+- [x] Cursos del alumno contra la API
 - [ ] **Tarjetas del Portafolio que abran la ficha real** ← siguiente
 - [ ] Wallet y detalle de inversión desde `/cartera/movimientos`
 - [ ] Perfil desde `GET /yo`
@@ -1114,7 +1162,9 @@ La app fuerza `ThemeMode.dark` y usa Material 3. Pendiente para tablet: puntos d
 - **Saldos**: ningún módulo fuera de `contabilidad` escribe en `cuenta`; `apunte_jicp` es append-only.
 - **Idempotencia**: todo endpoint que mueva moneda exige `Idempotency-Key`, y la garantía la da el índice único, nunca un `if (existe)` previo.
 - **Bloqueos**: siempre en orden determinista —primero el proyecto, luego las cuentas por id ascendente— para que dos operaciones cruzadas no se esperen mutuamente.
-- **Altas de credenciales**: crear una cuenta nunca es un endpoint abierto una vez existe alguien que pueda crearla; el centro del creado se hereda de quien la crea, jamás del body.
+- **Cerrado por defecto**: un endpoint nuevo exige token sin hacer nada; abrirlo es una decisión explícita en `SeguridadConfig`.
+- **Altas de credenciales**: nunca son un endpoint abierto. Hoy son de `ADMIN`; el primero nace desde el servidor, nunca por red.
+- **Dinero inicial**: lo fija el servidor (`jicp.saldo-inicial`), nunca la petición.
 - **Sesión en el cliente**: el rol sale siempre de la respuesta del servidor, nunca de algo guardado en el dispositivo; en `flutter_secure_storage` solo van tokens.
 - **Credenciales**: el email y la contraseña viven solo en `usuario`; ninguna respuesta los devuelve salvo el email del propio interesado.
 - **Datos de menores**: no registrar información personal innecesaria; el acceso del profesorado queda limitado a su centro educativo.

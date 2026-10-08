@@ -1,28 +1,13 @@
 package com.jicp.api
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.context.annotation.Import
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import kotlin.test.assertNotEquals
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(ContenedoresConfig::class)
-class AutenticacionTest {
-
-    @Autowired
-    private lateinit var mockMvc: MockMvc
-
-    @Autowired
-    private lateinit var json: ObjectMapper
+class AutenticacionTest : PruebaDeIntegracion() {
 
     @Test
     fun `el login devuelve tokens y yo describe al alumno del token`() {
@@ -38,7 +23,7 @@ class AutenticacionTest {
             jsonPath("$.email") { value("login.ok@ies.example") }
             jsonPath("$.alumno.id") { value(idAlumno) }
             jsonPath("$.alumno.nombre") { value("Alumno") }
-            jsonPath("$.alumno.jicpInicial") { value(10000.00) }
+            jsonPath("$.alumno.jicpInicial") { value(SALDO_INICIAL.toDouble()) }
         }
     }
 
@@ -139,9 +124,26 @@ class AutenticacionTest {
     }
 
     @Test
-    fun `los endpoints todavia abiertos siguen respondiendo sin token`() {
-        mockMvc.get("/api/v1/categorias").andExpect { status { isOk() } }
-        mockMvc.get("/api/v1/proyectos").andExpect { status { isOk() } }
+    fun `sin token la API esta cerrada salvo lo publico`() {
+        // Todo nace cerrado: tambien las lecturas que antes eran abiertas.
+        for (ruta in listOf(
+            "/api/v1/categorias",
+            "/api/v1/proyectos",
+            "/api/v1/proyectos/1/comentarios",
+            "/api/v1/proyectos/1/mercado",
+            "/api/v1/alumnos",
+            "/api/v1/profesores",
+            "/api/v1/colegios",
+        )) {
+            mockMvc.get(ruta).andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.title") { value("No autenticado") }
+            }
+        }
+
+        // Lo unico abierto a proposito.
+        mockMvc.get("/actuator/health").andExpect { status { isOk() } }
+        mockMvc.get("/v3/api-docs").andExpect { status { isOk() } }
     }
 
     // --- utilidades ---
@@ -182,34 +184,6 @@ class AutenticacionTest {
         return email
     }
 
-    private fun darDeAltaAlumno(email: String, nombreColegio: String): Int {
-        val colegio = mockMvc.post("/api/v1/colegios") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {"nombre": "$nombreColegio", "direccion": "Calle Mayor 1", "email": "centro.$email"}
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString
-
-        val idColegio = json.readTree(colegio).get("id").asInt()
-
-        val alumno = mockMvc.post("/api/v1/alumnos") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Alumno",
-                  "apellido": "De Prueba",
-                  "email": "$email",
-                  "password": "$CONTRASENA",
-                  "idColegio": $idColegio,
-                  "jicpInicial": 10000.00
-                }
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString
-
-        return json.readTree(alumno).get("id").asInt()
-    }
-
-    private companion object {
-        const val CONTRASENA = "contrasena-larga"
-    }
+    private fun darDeAltaAlumno(email: String, nombreColegio: String): Int =
+        crearAlumno(crearColegio(nombreColegio, "centro.$email"), email)
 }

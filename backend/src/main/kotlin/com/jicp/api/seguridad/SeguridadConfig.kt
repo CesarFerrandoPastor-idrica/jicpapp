@@ -3,7 +3,6 @@ package com.jicp.api.seguridad
 import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.http.HttpMethod
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
@@ -38,40 +37,19 @@ class SeguridadConfig(
             it.accessDeniedHandler(accesoDenegado)
         }
         .authorizeHttpRequests {
-            // Perfil del usuario del token: no tiene sentido sin autenticar.
-            it.requestMatchers("/api/v1/yo").authenticated()
-
+            // Lo unico que se puede llamar sin token. Todo lo demas nace cerrado: un endpoint
+            // nuevo exige autenticacion salvo que se abra aqui a proposito.
+            //
             // Login, renovacion y cierre de sesion: por definicion se llaman sin token.
             it.requestMatchers("/api/v1/auth/**").permitAll()
-
-            // El alta de alumno es todavia el registro publico. Cuando exista
-            // POST /auth/registro, esta linea se cae y el endpoint pasa a ser de profesor.
-            it.requestMatchers(HttpMethod.POST, "/api/v1/alumnos").permitAll()
-
-            // El alta y la edicion de profesorado exigen token: crear credenciales no es
-            // lo mismo que leer un catalogo, asi que estos endpoints se cierran ya aunque
-            // el resto del CRUD siga abierto. Quien puede hacerlo lo decide @PreAuthorize
-            // en ProfesorController; el primer profesor lo crea ProfesorInicial desde el
-            // servidor, no por red.
-            it.requestMatchers(HttpMethod.POST, "/api/v1/profesores").authenticated()
-            it.requestMatchers(HttpMethod.PUT, "/api/v1/profesores/**").authenticated()
-
-            // Endpoints que mueven dinero o dependen de quien eres. Se exige token aqui,
-            // en la cadena de filtros, para que una peticion anonima reciba 401 y no el 403
-            // que devolveria @PreAuthorize: sin credenciales el problema es que no sabemos
-            // quien eres, no que no te dejemos.
-            it.requestMatchers(HttpMethod.POST, "/api/v1/proyectos").authenticated()
-            it.requestMatchers(HttpMethod.POST, "/api/v1/inversiones").authenticated()
-            it.requestMatchers(HttpMethod.POST, "/api/v1/proyectos/*/comentarios").authenticated()
-            it.requestMatchers("/api/v1/cartera/**", "/api/v1/portafolio").authenticated()
-
             it.requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
             it.requestMatchers("/actuator/health", "/actuator/info").permitAll()
 
-            // El resto de la API sigue abierta a proposito: la app Flutter todavia no manda
-            // token y cerrar todo de golpe la dejaria sin backend. Se ira cerrando endpoint
-            // por endpoint segun cada pantalla se conecte. Ver README, roadmap fase 2.
-            it.anyRequest().permitAll()
+            // Con token, pero sin decidir aqui QUIEN: eso lo hace @PreAuthorize en cada
+            // controlador (por ejemplo, las altas son de ADMIN). Exigirlo en la cadena de
+            // filtros hace que una peticion anonima reciba 401 y no el 403 de @PreAuthorize:
+            // sin credenciales el problema es que no sabemos quien eres, no que no te dejemos.
+            it.anyRequest().authenticated()
         }
         .addFilterBefore(filtroJwt, UsernamePasswordAuthenticationFilter::class.java)
         .build()

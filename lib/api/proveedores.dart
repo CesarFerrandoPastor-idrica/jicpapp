@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'almacen_de_tokens.dart';
 import 'cliente_api.dart';
+import 'repositorio_aula.dart';
 import 'repositorio_auth.dart';
 import 'repositorio_proyectos.dart';
 import 'sesion.dart';
@@ -14,7 +15,8 @@ import 'sesion.dart';
 // con sustituir un proveedor (`overrides`) para darles un repositorio falso.
 //
 //   almacenDeTokens ─┬─▶ clienteApi ─┬─▶ repositorioAuth ──▶ sesion
-//                    │               └─▶ repositorioProyectos
+//                    │               ├─▶ repositorioProyectos
+//                    │               └─▶ repositorioAula
 //                    └───────────────────▶ repositorioAuth
 
 /// Almacen cifrado de tokens. Uno solo para toda la app: el cliente lo lee al
@@ -41,4 +43,9 @@ final repositorioAuthProvider = Provider<RepositorioAuth>(
 
 final repositorioProyectosProvider = Provider<RepositorioProyectos>(
   (ref) => RepositorioProyectos(cliente: ref.watch(clienteApiProvider)),
+);
+
+/// Cursos, ranking y alumnado del centro.
+final repositorioAulaProvider = Provider<RepositorioAula>(
+  (ref) => RepositorioAula(cliente: ref.watch(clienteApiProvider)),
 );

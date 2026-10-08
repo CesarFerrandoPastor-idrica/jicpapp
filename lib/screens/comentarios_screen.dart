@@ -164,15 +164,21 @@ class _ComentariosScreenState extends ConsumerState<ComentariosScreen> {
       ),
       body: Column(
         children: [
-          Expanded(child: _hilo(sesion.alumno?.id)),
-          // Solo el alumnado comenta: el servidor responde 403 a cualquier otro rol.
-          if (sesion.rol == Rol.alumno) _cajaDeTexto(),
+          Expanded(child: _hilo(sesion)),
+          // Comentan el alumnado y el profesorado del centro. Un admin solo lee: el
+          // servidor le respondería 403.
+          if (sesion.rol == Rol.alumno || sesion.rol == Rol.profesor) _cajaDeTexto(),
         ],
       ),
     );
   }
 
-  Widget _hilo(int? miIdAlumno) {
+  /// El comentario es de quien mira: mismo alumno, o mismo profesor.
+  bool _esMio(Comentario c, EstadoDeSesion sesion) =>
+      (c.idAlumno != null && c.idAlumno == sesion.alumno?.id) ||
+      (c.idProfesor != null && c.idProfesor == sesion.perfil?.profesor?.id);
+
+  Widget _hilo(EstadoDeSesion sesion) {
     if (_cargando) {
       return const Center(child: CircularProgressIndicator(color: _dorado));
     }
@@ -213,7 +219,7 @@ class _ComentariosScreenState extends ConsumerState<ComentariosScreen> {
                 final c = _comentarios[i];
                 return _TarjetaDeComentario(
                   comentario: c,
-                  esMio: c.idAlumno == miIdAlumno,
+                  esMio: _esMio(c, sesion),
                 );
               },
             ),
@@ -343,7 +349,7 @@ class _TarjetaDeComentario extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(
+              Flexible(
                 child: Text(
                   esMio ? 'Tú' : comentario.autor,
                   overflow: TextOverflow.ellipsis,
@@ -351,6 +357,23 @@ class _TarjetaDeComentario extends StatelessWidget {
                       color: _dorado, fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ),
+              if (comentario.deProfesor) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.lightBlueAccent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.lightBlueAccent.withValues(alpha: 0.5)),
+                  ),
+                  child: const Text('Profesor',
+                      style: TextStyle(
+                          color: Colors.lightBlueAccent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ],
+              const Spacer(),
               Text(
                 haceCuanto(comentario.fecha, DateTime.now()),
                 style: const TextStyle(color: Colors.white38, fontSize: 11),

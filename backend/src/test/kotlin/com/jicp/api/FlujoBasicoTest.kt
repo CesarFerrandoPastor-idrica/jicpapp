@@ -1,40 +1,24 @@
 package com.jicp.api
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.Test
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.context.annotation.Import
-import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
-import kotlin.test.assertEquals
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(ContenedoresConfig::class)
-class FlujoBasicoTest {
-
-    @Autowired
-    private lateinit var mockMvc: MockMvc
-
-    @Autowired
-    private lateinit var json: ObjectMapper
+class FlujoBasicoTest : PruebaDeIntegracion() {
 
     @Test
     fun `los catalogos se cargan con las migraciones`() {
-        mockMvc.get("/api/v1/categorias").andExpect {
+        val token = tokenDeAdmin()
+        mockMvc.get("/api/v1/categorias") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.length()") { value(5) }
         }
-        mockMvc.get("/api/v1/estados-proyecto").andExpect {
+        mockMvc.get("/api/v1/estados-proyecto") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.length()") { value(3) }
         }
-        mockMvc.get("/api/v1/roles-proyecto").andExpect {
+        mockMvc.get("/api/v1/roles-proyecto") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.length()") { value(3) }
             jsonPath("$[0].id") { value(1) }
@@ -46,32 +30,39 @@ class FlujoBasicoTest {
     fun `alta de colegio, alumno y proyecto`() {
         val idColegio = crearColegio("IES Ramon y Cajal", "alta@ies.example")
 
-        // El alumno se crea y la respuesta NO expone la contrasena ni su hash.
+        // El alumno se crea y la respuesta NO expone la contrasena ni su hash. Y aunque la
+        // peticion intente fijar su saldo inicial, entra con el que decide el servidor.
         val idAlumno = json.readTree(
             mockMvc.post("/api/v1/alumnos") {
+                con(tokenDeAdmin())
                 contentType = MediaType.APPLICATION_JSON
                 content = """
                     {
                       "nombre": "Ana",
                       "apellido": "Martinez",
                       "email": "ana@ies.example",
-                      "password": "contrasena-larga",
+                      "password": "$CONTRASENA",
                       "idColegio": $idColegio,
-                      "jicpInicial": 10000.00
+                      "jicpInicial": 99999999.00
                     }
                 """.trimIndent()
             }.andExpect {
                 status { isCreated() }
                 jsonPath("$.email") { value("ana@ies.example") }
-                jsonPath("$.jicpInicial") { value(10000.00) }
+                jsonPath("$.jicpInicial") { value(SALDO_INICIAL.toDouble()) }
                 jsonPath("$.password") { doesNotExist() }
                 jsonPath("$.passwordHash") { doesNotExist() }
             }.andReturn().response.contentAsString,
         ).get("id").asInt()
 
+        mockMvc.get("/api/v1/cartera") { con(tokenDe("ana@ies.example")) }.andExpect {
+            status { isOk() }
+            jsonPath("$.saldo") { value(SALDO_INICIAL.toDouble()) }
+        }
+
         val idProyecto = json.readTree(
             mockMvc.post("/api/v1/proyectos") {
-                header(HttpHeaders.AUTHORIZATION, "Bearer ${tokenDe("ana@ies.example")}")
+                con(tokenDe("ana@ies.example"))
                 contentType = MediaType.APPLICATION_JSON
                 content = """
                     {
@@ -94,7 +85,7 @@ class FlujoBasicoTest {
             }.andReturn().response.contentAsString,
         ).get("id").asInt()
 
-        mockMvc.get("/api/v1/proyectos/$idProyecto").andExpect {
+        mockMvc.get("/api/v1/proyectos/$idProyecto") { con(tokenDe("ana@ies.example")) }.andExpect {
             status { isOk() }
             jsonPath("$.nombre") { value("Eco-Drone Delivery") }
             jsonPath("$.creador.apellido") { value("Martinez") }
@@ -105,9 +96,10 @@ class FlujoBasicoTest {
     fun `el listado de proyectos admite filtros opcionales`() {
         val idColegio = crearColegio("IES Filtros", "filtros@ies.example")
         val idAlumno = crearAlumno(idColegio, "filtros.alumno@ies.example")
+        val token = tokenDe("filtros.alumno@ies.example")
 
         mockMvc.post("/api/v1/proyectos") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer ${tokenDe("filtros.alumno@ies.example")}")
+            con(token)
             contentType = MediaType.APPLICATION_JSON
             content = """
                 {
@@ -120,10 +112,10 @@ class FlujoBasicoTest {
         }.andExpect { status { isCreated() } }
 
         // Sin filtros: la consulta con los tres parametros a null debe resolverse.
-        mockMvc.get("/api/v1/proyectos").andExpect { status { isOk() } }
+        mockMvc.get("/api/v1/proyectos") { con(token) }.andExpect { status { isOk() } }
 
         // Filtrando por colegio solo aparece el proyecto de ese colegio, con su creador.
-        mockMvc.get("/api/v1/proyectos?idColegio=$idColegio").andExpect {
+        mockMvc.get("/api/v1/proyectos?idColegio=$idColegio") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.totalElements") { value(1) }
             jsonPath("$.content[0].nombre") { value("Proyecto filtrable") }
@@ -131,7 +123,7 @@ class FlujoBasicoTest {
         }
 
         // Filtro combinado que no case con nada devuelve una pagina vacia.
-        mockMvc.get("/api/v1/proyectos?idColegio=$idColegio&idCategoria=999999").andExpect {
+        mockMvc.get("/api/v1/proyectos?idColegio=$idColegio&idCategoria=999999") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.totalElements") { value(0) }
         }
@@ -165,17 +157,19 @@ class FlujoBasicoTest {
               "nombre": "Juan",
               "apellido": "Perez",
               "email": "repetido@ies.example",
-              "password": "contrasena-larga",
+              "password": "$CONTRASENA",
               "idColegio": $idColegio
             }
         """.trimIndent()
 
         mockMvc.post("/api/v1/alumnos") {
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
             content = cuerpo
         }.andExpect { status { isCreated() } }
 
         mockMvc.post("/api/v1/alumnos") {
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
             content = cuerpo
         }.andExpect { status { isConflict() } }
@@ -184,13 +178,14 @@ class FlujoBasicoTest {
     @Test
     fun `un alumno de un colegio inexistente devuelve 404`() {
         mockMvc.post("/api/v1/alumnos") {
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
             content = """
                 {
                   "nombre": "Sin",
                   "apellido": "Colegio",
                   "email": "sincolegio@ies.example",
-                  "password": "contrasena-larga",
+                  "password": "$CONTRASENA",
                   "idColegio": 999999
                 }
             """.trimIndent()
@@ -200,6 +195,7 @@ class FlujoBasicoTest {
     @Test
     fun `los datos invalidos devuelven 422 con el detalle por campo`() {
         mockMvc.post("/api/v1/alumnos") {
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
             content = """
                 {
@@ -216,48 +212,5 @@ class FlujoBasicoTest {
             jsonPath("$.errores.email") { exists() }
             jsonPath("$.errores.password") { exists() }
         }
-    }
-
-    private fun crearColegio(nombre: String, email: String): Int {
-        val respuesta = mockMvc.post("/api/v1/colegios") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {"nombre": "$nombre", "direccion": "Calle Mayor 1", "email": "$email"}
-            """.trimIndent()
-        }.andExpect {
-            status { isCreated() }
-            jsonPath("$.nombre") { value(nombre) }
-        }.andReturn().response.contentAsString
-
-        val id = json.readTree(respuesta).get("id").asInt()
-        assertEquals(true, id > 0, "el colegio debe recibir un id generado")
-        return id
-    }
-
-    private val tokens = mutableMapOf<String, String>()
-
-    private fun tokenDe(email: String): String = tokens.getOrPut(email) {
-        val respuesta = mockMvc.post("/api/v1/auth/login") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"email": "$email", "password": "contrasena-larga"}"""
-        }.andExpect { status { isOk() } }.andReturn().response.contentAsString
-        json.readTree(respuesta).get("accessToken").asText()
-    }
-
-    private fun crearAlumno(idColegio: Int, email: String): Int {
-        val respuesta = mockMvc.post("/api/v1/alumnos") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Alumno",
-                  "apellido": "De Prueba",
-                  "email": "$email",
-                  "password": "contrasena-larga",
-                  "idColegio": $idColegio
-                }
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString
-
-        return json.readTree(respuesta).get("id").asInt()
     }
 }

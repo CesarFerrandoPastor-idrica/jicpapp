@@ -36,6 +36,23 @@ jicp:
       # Larga porque el refresh si se puede revocar: vive en base de datos y rota en cada uso.
       duracion-refresh: 30d
 
+    # Cuentas que nacen desde el servidor y no por la API: la primera de cada tipo no
+    # puede crearla nadie por red, porque las altas exigen ya un rol. Solo actuan si sus
+    # variables estan definidas y todavia no existe nadie con ese rol. Los nombres de las
+    # variables se enlazan aqui a mano: Spring solo traduciria por si mismo
+    # JICP_SEGURIDAD_ADMIN_INICIAL_EMAIL, que no es el nombre documentado.
+    admin-inicial:
+      email: ${JICP_ADMIN_INICIAL_EMAIL:}
+      password: ${JICP_ADMIN_INICIAL_PASSWORD:}
+    profesor-inicial:
+      email: ${JICP_PROFESOR_INICIAL_EMAIL:}
+      password: ${JICP_PROFESOR_INICIAL_PASSWORD:}
+      id-colegio: ${JICP_PROFESOR_INICIAL_ID_COLEGIO:0}
+
+  # Lo que recibe cada alumno al darse de alta. Lo decide el servidor, igual para todos:
+  # nadie que llame a la API puede elegir con cuanto dinero empieza.
+  saldo-inicial: ${JICP_SALDO_INICIAL:500000.00}
+
 server:
   port: ${SERVER_PORT:8080}
   error:

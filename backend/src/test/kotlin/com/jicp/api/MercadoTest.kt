@@ -1,15 +1,10 @@
 package com.jicp.api
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.jicp.api.contabilidad.ApunteJicpRepository
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.context.annotation.Import
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import java.math.BigDecimal
@@ -27,13 +22,8 @@ import kotlin.test.assertTrue
  * Incluye el test de concurrencia que exige el README, que es el unico que demuestra de
  * verdad que el bloqueo pesimista y el CHECK de saldo hacen su trabajo.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(ContenedoresConfig::class)
-class MercadoTest {
+class MercadoTest : PruebaDeIntegracion() {
 
-    @Autowired private lateinit var mockMvc: MockMvc
-    @Autowired private lateinit var json: ObjectMapper
     @Autowired private lateinit var apuntes: ApunteJicpRepository
 
     @Test
@@ -83,7 +73,7 @@ class MercadoTest {
 
         // Nada se ha escrito: ni proyecto, ni descuento.
         igual("100.00", saldoDe(pobre), "saldo intacto")
-        mockMvc.get("/api/v1/proyectos?idColegio=$colegio").andExpect {
+        mockMvc.get("/api/v1/proyectos?idColegio=$colegio") { con(tokenDe("pobre@ies.example")) }.andExpect {
             jsonPath("$.totalElements") { value(0) }
         }
     }
@@ -271,7 +261,7 @@ class MercadoTest {
         // Ni una participacion emitida, ni un JICP movido.
         igual("9500.00", saldoDe(inversor), "saldo tras fundar su proyecto")
         val mercado = json.readTree(
-            mockMvc.get("/api/v1/proyectos/$proyecto/mercado")
+            mockMvc.get("/api/v1/proyectos/$proyecto/mercado") { con(tokenDe("i.ajena@ies.example")) }
                 .andExpect { status { isOk() } }.andReturn().response.contentAsString,
         )
         igual("10.0000", mercado["participacionesEmitidas"].decimalValue(), "emitidas")
@@ -337,8 +327,8 @@ class MercadoTest {
             jsonPath("$.nombre") { value("Alumno") }
         }
 
-        // Leer el hilo es abierto: no hace falta token.
-        mockMvc.get("/api/v1/proyectos/$proyecto/comentarios").andExpect {
+        // Leer el hilo tambien exige token, como todo lo que no es el login.
+        mockMvc.get("/api/v1/proyectos/$proyecto/comentarios") { con(tokenDe("f.com@ies.example")) }.andExpect {
             status { isOk() }
             jsonPath("$.totalElements") { value(1) }
         }
@@ -361,7 +351,8 @@ class MercadoTest {
     fun `los movimientos de la cartera cuentan la historia completa`() {
         val colegio = crearColegio("IES Movimientos", "movs@ies.example")
         val fundador = crearAlumno(colegio, "f.mov@ies.example", saldo = "10000.00")
-        val inversor = crearAlumno(colegio, "i.mov@ies.example", saldo = "5000.00")
+        // Sin ajuste de saldo: asi el historial es exactamente concesion + inversion.
+        val inversor = crearAlumno(colegio, "i.mov@ies.example")
         val proyecto = crearProyecto(fundador, "Con historial", "1000.00", "100.00", "100.0000")
         invertir(inversor, proyecto, "2.0000")
 
@@ -380,7 +371,8 @@ class MercadoTest {
 
         val concesion = movimientos["content"][1]
         assertEquals("CONCESION_INICIAL", concesion["tipo"].asText())
-        igual("5000.00", concesion["importe"].decimalValue(), "concesion inicial")
+        // La concesion es la fija del servidor, no algo que eligiera quien dio el alta.
+        igual(SALDO_INICIAL, concesion["importe"].decimalValue(), "concesion inicial")
     }
 
     @Test
@@ -414,7 +406,7 @@ class MercadoTest {
         )
 
     private fun mercadoDe(idProyecto: Int) = json.readTree(
-        mockMvc.get("/api/v1/proyectos/$idProyecto/mercado")
+        mockMvc.get("/api/v1/proyectos/$idProyecto/mercado") { con(tokenDeAdmin()) }
             .andExpect { status { isOk() } }.andReturn().response.contentAsString,
     )
 
@@ -437,25 +429,7 @@ class MercadoTest {
         )
     }
 
-    private fun crearColegio(nombre: String, email: String): Int = json.readTree(
-        mockMvc.post("/api/v1/colegios") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"nombre": "$nombre", "direccion": "Calle Mayor 1", "email": "$email"}"""
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString,
-    ).get("id").asInt()
 
-    private fun crearAlumno(idColegio: Int, email: String, saldo: String): Int = json.readTree(
-        mockMvc.post("/api/v1/alumnos") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Alumno", "apellido": "De Prueba",
-                  "email": "$email", "password": "$CONTRASENA",
-                  "idColegio": $idColegio, "jicpInicial": $saldo
-                }
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString,
-    ).get("id").asInt()
 
     private fun crearProyecto(
         idAlumno: Int,
@@ -512,23 +486,7 @@ class MercadoTest {
     ).get("saldo").decimalValue()
 
     private fun emailDe(idAlumno: Int): String = json.readTree(
-        mockMvc.get("/api/v1/alumnos/$idAlumno")
+        mockMvc.get("/api/v1/alumnos/$idAlumno") { con(tokenDeAdmin()) }
             .andExpect { status { isOk() } }.andReturn().response.contentAsString,
     ).get("email").asText()
-
-    /** Los tokens se cachean: repetir el login en cada ayuda haria el test mucho mas lento. */
-    private val tokens = mutableMapOf<String, String>()
-
-    private fun tokenDe(email: String): String = tokens.getOrPut(email) {
-        json.readTree(
-            mockMvc.post("/api/v1/auth/login") {
-                contentType = MediaType.APPLICATION_JSON
-                content = """{"email": "$email", "password": "$CONTRASENA"}"""
-            }.andExpect { status { isOk() } }.andReturn().response.contentAsString,
-        ).get("accessToken").asText()
-    }
-
-    private companion object {
-        const val CONTRASENA = "contrasena-larga"
-    }
 }

@@ -20,6 +20,9 @@ interface AlumnoRepository : JpaRepository<Alumno, Int> {
     @EntityGraph(attributePaths = ["colegio", "usuario"])
     fun findByColegioId(idColegio: Int, pageable: Pageable): Page<Alumno>
 
+    /** Todo el alumnado de un centro, sin paginar: una clase cabe entera en una respuesta. */
+    fun findByColegioIdOrderByApellidoAscNombreAsc(idColegio: Int): List<Alumno>
+
     @EntityGraph(attributePaths = ["colegio", "usuario"])
     override fun findById(id: Int): Optional<Alumno>
 }

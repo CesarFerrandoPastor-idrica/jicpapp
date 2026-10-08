@@ -1,6 +1,5 @@
 package com.jicp.api
 
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.jicp.api.colegio.ColegioRepository
 import com.jicp.api.profesor.Profesor
 import com.jicp.api.profesor.ProfesorRepository
@@ -8,49 +7,36 @@ import com.jicp.api.seguridad.Rol
 import com.jicp.api.seguridad.Usuario
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.context.annotation.Import
-import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
-import org.springframework.security.crypto.password.PasswordEncoder
-import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
 
-@SpringBootTest
-@AutoConfigureMockMvc
-@Import(ContenedoresConfig::class)
-class ProfesorTest {
+class ProfesorTest : PruebaDeIntegracion() {
 
-    @Autowired private lateinit var mockMvc: MockMvc
-    @Autowired private lateinit var json: ObjectMapper
     @Autowired private lateinit var profesores: ProfesorRepository
     @Autowired private lateinit var colegios: ColegioRepository
-    @Autowired private lateinit var passwordEncoder: PasswordEncoder
 
     @Test
-    fun `un profesor da de alta a un companero y lo hereda su centro`() {
+    fun `un admin da de alta un profesor en el centro indicado`() {
         val idColegio = crearColegio("IES Docentes", "docentes@ies.example")
-        val token = tokenDeProfesorSembrado(idColegio, "jefatura@docentes.example")
 
         val id = json.readTree(
             mockMvc.post("/api/v1/profesores") {
-                header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+                con(tokenDeAdmin())
                 contentType = MediaType.APPLICATION_JSON
                 content = """
                     {
                       "nombre": "Marta",
                       "apellido": "Ruiz",
                       "email": "marta@docentes.example",
-                      "password": "$CONTRASENA"
+                      "password": "$CONTRASENA",
+                      "idColegio": $idColegio
                     }
                 """.trimIndent()
             }.andExpect {
                 status { isCreated() }
                 jsonPath("$.email") { value("marta@docentes.example") }
-                // El centro no se envia: sale del profesor que da el alta.
                 jsonPath("$.idColegio") { value(idColegio) }
                 jsonPath("$.nombreColegio") { value("IES Docentes") }
                 jsonPath("$.password") { doesNotExist() }
@@ -58,7 +44,7 @@ class ProfesorTest {
             }.andReturn().response.contentAsString,
         ).get("id").asInt()
 
-        mockMvc.get("/api/v1/profesores/$id").andExpect {
+        mockMvc.get("/api/v1/profesores/$id") { con(tokenDeAdmin()) }.andExpect {
             status { isOk() }
             jsonPath("$.nombre") { value("Marta") }
         }
@@ -68,12 +54,7 @@ class ProfesorTest {
     fun `sin token no se puede dar de alta profesorado`() {
         mockMvc.post("/api/v1/profesores") {
             contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Intruso", "apellido": "Sin Token",
-                  "email": "intruso@docentes.example", "password": "$CONTRASENA"
-                }
-            """.trimIndent()
+            content = cuerpoDeAlta("intruso@docentes.example", idColegio = 1)
         }.andExpect {
             status { isUnauthorized() }
             jsonPath("$.title") { value("No autenticado") }
@@ -83,18 +64,26 @@ class ProfesorTest {
     @Test
     fun `un alumno no puede dar de alta profesorado`() {
         val idColegio = crearColegio("IES Alumno Cuela", "alumnocuela@ies.example")
-        val token = tokenDeAlumno(idColegio, "alumno.cuela@ies.example")
+        crearAlumno(idColegio, "alumno.cuela@ies.example")
 
         // Token valido, pero el rol no alcanza: 403, no 401.
         mockMvc.post("/api/v1/profesores") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+            con(tokenDe("alumno.cuela@ies.example"))
             contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Colado", "apellido": "Por Alumno",
-                  "email": "colado@docentes.example", "password": "$CONTRASENA"
-                }
-            """.trimIndent()
+            content = cuerpoDeAlta("colado@docentes.example", idColegio)
+        }.andExpect { status { isForbidden() } }
+    }
+
+    /** Las altas de usuarios son de los desarrolladores (ADMIN), tambien las de profesorado. */
+    @Test
+    fun `un profesor ya no puede dar de alta a un companero`() {
+        val idColegio = crearColegio("IES Sin Altas", "sinaltas@ies.example")
+        profesorSembrado(idColegio, "jefe.sinaltas@docentes.example")
+
+        mockMvc.post("/api/v1/profesores") {
+            con(tokenDe("jefe.sinaltas@docentes.example"))
+            contentType = MediaType.APPLICATION_JSON
+            content = cuerpoDeAlta("companero.sinaltas@docentes.example", idColegio)
         }.andExpect { status { isForbidden() } }
     }
 
@@ -103,13 +92,11 @@ class ProfesorTest {
         val idCentroA = crearColegio("IES Centro A", "centroa@ies.example")
         val idCentroB = crearColegio("IES Centro B", "centrob@ies.example")
 
-        val tokenA = tokenDeProfesorSembrado(idCentroA, "jefe.a@docentes.example")
-        val idProfesorB = profesorSembrado(idCentroB, "jefe.b@docentes.example").let {
-            requireNotNull(it.id)
-        }
+        profesorSembrado(idCentroA, "jefe.a@docentes.example")
+        val idProfesorB = requireNotNull(profesorSembrado(idCentroB, "jefe.b@docentes.example").id)
 
         mockMvc.put("/api/v1/profesores/$idProfesorB") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $tokenA")
+            con(tokenDe("jefe.a@docentes.example"))
             contentType = MediaType.APPLICATION_JSON
             content = """{"nombre": "Secuestrado", "apellido": "Por Otro Centro"}"""
         }.andExpect {
@@ -121,11 +108,11 @@ class ProfesorTest {
     @Test
     fun `un profesor si puede editar a alguien de su propio centro`() {
         val idColegio = crearColegio("IES Mismo Centro", "mismocentro@ies.example")
-        val token = tokenDeProfesorSembrado(idColegio, "jefe.mismo@docentes.example")
+        profesorSembrado(idColegio, "jefe.mismo@docentes.example")
         val companero = profesorSembrado(idColegio, "companero@docentes.example")
 
         mockMvc.put("/api/v1/profesores/${companero.id}") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+            con(tokenDe("jefe.mismo@docentes.example"))
             contentType = MediaType.APPLICATION_JSON
             content = """{"nombre": "Marta Elena", "apellido": "Ruiz Vega"}"""
         }.andExpect {
@@ -133,6 +120,21 @@ class ProfesorTest {
             jsonPath("$.nombre") { value("Marta Elena") }
             // Cambiar el nombre no toca el email, que vive en usuario.
             jsonPath("$.email") { value("companero@docentes.example") }
+        }
+    }
+
+    @Test
+    fun `un admin puede editar profesorado de cualquier centro`() {
+        val idColegio = crearColegio("IES Edicion Admin", "edicionadmin@ies.example")
+        val profesor = profesorSembrado(idColegio, "editable@docentes.example")
+
+        mockMvc.put("/api/v1/profesores/${profesor.id}") {
+            con(tokenDeAdmin())
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"nombre": "Corregido", "apellido": "Por Admin"}"""
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.nombre") { value("Corregido") }
         }
     }
 
@@ -151,9 +153,7 @@ class ProfesorTest {
             }.andReturn().response.contentAsString,
         ).get("accessToken").asText()
 
-        mockMvc.get("/api/v1/yo") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $token")
-        }.andExpect {
+        mockMvc.get("/api/v1/yo") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.rol") { value("PROFESOR") }
             jsonPath("$.profesor.nombreColegio") { value("IES Login Docente") }
@@ -165,29 +165,13 @@ class ProfesorTest {
     @Test
     fun `un alumno y un profesor no pueden compartir email`() {
         val idColegio = crearColegio("IES Compartido", "compartido@ies.example")
-        val token = tokenDeProfesorSembrado(idColegio, "jefe.compartido@docentes.example")
-
-        mockMvc.post("/api/v1/alumnos") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Ana", "apellido": "Lopez",
-                  "email": "mismo@ies.example", "password": "$CONTRASENA",
-                  "idColegio": $idColegio
-                }
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }
+        crearAlumno(idColegio, "mismo@ies.example", nombre = "Ana", apellido = "Lopez")
 
         // El email es unico en usuario, que es de donde cuelgan los dos roles.
         mockMvc.post("/api/v1/profesores") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Ana", "apellido": "Lopez",
-                  "email": "mismo@ies.example", "password": "$CONTRASENA"
-                }
-            """.trimIndent()
+            content = cuerpoDeAlta("mismo@ies.example", idColegio)
         }.andExpect { status { isConflict() } }
     }
 
@@ -196,13 +180,14 @@ class ProfesorTest {
         val idColegio = crearColegio("IES Filtro Docente", "filtrodoc@ies.example")
         profesorSembrado(idColegio, "filtro1@docentes.example")
         profesorSembrado(idColegio, "filtro2@docentes.example")
+        val token = tokenDeAdmin()
 
-        mockMvc.get("/api/v1/profesores?idColegio=$idColegio").andExpect {
+        mockMvc.get("/api/v1/profesores?idColegio=$idColegio") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.totalElements") { value(2) }
         }
 
-        mockMvc.get("/api/v1/profesores?idColegio=999999").andExpect {
+        mockMvc.get("/api/v1/profesores?idColegio=999999") { con(token) }.andExpect {
             status { isOk() }
             jsonPath("$.totalElements") { value(0) }
         }
@@ -210,13 +195,12 @@ class ProfesorTest {
 
     @Test
     fun `los datos invalidos devuelven 422 con el detalle por campo`() {
-        val idColegio = crearColegio("IES Validacion", "validacion@ies.example")
-        val token = tokenDeProfesorSembrado(idColegio, "jefe.validacion@docentes.example")
-
         mockMvc.post("/api/v1/profesores") {
-            header(HttpHeaders.AUTHORIZATION, "Bearer $token")
+            con(tokenDeAdmin())
             contentType = MediaType.APPLICATION_JSON
-            content = """{"nombre": "", "apellido": "Corto", "email": "no-es-email", "password": "corta"}"""
+            content = """
+                {"nombre": "", "apellido": "Corto", "email": "no-es-email", "password": "corta", "idColegio": 1}
+            """.trimIndent()
         }.andExpect {
             status { isUnprocessableEntity() }
             jsonPath("$.errores.nombre") { exists() }
@@ -227,19 +211,17 @@ class ProfesorTest {
 
     // --- utilidades ---
 
-    private fun crearColegio(nombre: String, email: String): Int {
-        val respuesta = mockMvc.post("/api/v1/colegios") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"nombre": "$nombre", "direccion": "Calle Mayor 1", "email": "$email"}"""
-        }.andExpect { status { isCreated() } }.andReturn().response.contentAsString
-
-        return json.readTree(respuesta).get("id").asInt()
-    }
+    private fun cuerpoDeAlta(email: String, idColegio: Int) = """
+        {
+          "nombre": "Profesor", "apellido": "Nuevo",
+          "email": "$email", "password": "$CONTRASENA",
+          "idColegio": $idColegio
+        }
+    """.trimIndent()
 
     /**
-     * Siembra un profesor directamente en la base, que es lo unico que se puede hacer
-     * cuando todavia no hay ninguno: por la API ya no se puede, y ese es justo el
-     * comportamiento que se quiere. Equivale a lo que hace ProfesorInicial al arrancar.
+     * Siembra un profesor directamente en la base. Sirve para tener profesorado sin pasar
+     * por el alta de admin cuando lo que se prueba es otra cosa (editar, entrar...).
      */
     private fun profesorSembrado(idColegio: Int, email: String): Profesor =
         profesores.save(
@@ -254,36 +236,4 @@ class ProfesorTest {
                 colegio = colegios.findById(idColegio).orElseThrow(),
             ),
         )
-
-    private fun tokenDeProfesorSembrado(idColegio: Int, email: String): String {
-        profesorSembrado(idColegio, email)
-        return tokenDe(email)
-    }
-
-    private fun tokenDeAlumno(idColegio: Int, email: String): String {
-        mockMvc.post("/api/v1/alumnos") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """
-                {
-                  "nombre": "Alumno", "apellido": "De Prueba",
-                  "email": "$email", "password": "$CONTRASENA",
-                  "idColegio": $idColegio
-                }
-            """.trimIndent()
-        }.andExpect { status { isCreated() } }
-        return tokenDe(email)
-    }
-
-    private fun tokenDe(email: String): String {
-        val respuesta = mockMvc.post("/api/v1/auth/login") {
-            contentType = MediaType.APPLICATION_JSON
-            content = """{"email": "$email", "password": "$CONTRASENA"}"""
-        }.andExpect { status { isOk() } }.andReturn().response.contentAsString
-
-        return json.readTree(respuesta).get("accessToken").asText()
-    }
-
-    private companion object {
-        const val CONTRASENA = "contrasena-larga"
-    }
 }

@@ -1,7 +1,5 @@
 package com.jicp.api.alumno
 
-import jakarta.validation.constraints.DecimalMin
-import jakarta.validation.constraints.Digits
 import jakarta.validation.constraints.Email
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
@@ -32,13 +30,8 @@ data class CrearAlumnoRequest(
     @field:Positive(message = "identificador de colegio invalido")
     val idColegio: Int,
 
-    /**
-     * Concesion inicial de JICP. Solo deberia poder fijarla un profesor o un admin:
-     * en cuanto exista autenticacion, este campo se ignora para los alumnos.
-     */
-    @field:DecimalMin(value = "0.00", message = "no puede ser negativa")
-    @field:Digits(integer = 10, fraction = 2, message = "maximo 10 enteros y 2 decimales")
-    val jicpInicial: BigDecimal = BigDecimal.ZERO,
+    // El saldo inicial NO se envia: es el mismo para todos y lo fija el servidor
+    // (jicp.saldo-inicial). Si una peticion trae `jicpInicial`, se ignora.
 )
 
 data class ActualizarAlumnoRequest(

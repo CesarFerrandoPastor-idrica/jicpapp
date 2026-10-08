@@ -298,16 +298,23 @@ class ReciboDeInversion {
 class Comentario {
   const Comentario({
     required this.id,
-    required this.idAlumno,
     required this.autor,
     required this.texto,
     required this.fecha,
+    this.idAlumno,
+    this.idProfesor,
+    this.deProfesor = false,
   });
 
   final int id;
 
-  /// Quién lo escribió. Sirve para marcar los propios en el hilo.
-  final int idAlumno;
+  /// Quién lo escribió: un alumno o un profesor, nunca los dos. Sirve para
+  /// marcar los propios en el hilo.
+  final int? idAlumno;
+  final int? idProfesor;
+
+  /// Lo escribió el profesorado: el hilo lo destaca.
+  final bool deProfesor;
   final String autor;
   final String texto;
 
@@ -316,7 +323,9 @@ class Comentario {
 
   factory Comentario.desdeJson(Map<String, dynamic> json) => Comentario(
         id: json['id'] as int,
-        idAlumno: json['idAlumno'] as int,
+        idAlumno: json['idAlumno'] as int?,
+        idProfesor: json['idProfesor'] as int?,
+        deProfesor: json['deProfesor'] as bool? ?? false,
         autor: '${json['nombre']} ${json['apellido']}',
         texto: json['texto'] as String,
         fecha: DateTime.parse(json['fecha'] as String),

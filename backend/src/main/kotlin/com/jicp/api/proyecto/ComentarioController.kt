@@ -1,6 +1,8 @@
 package com.jicp.api.proyecto
 
 import com.jicp.api.alumno.AlumnoRepository
+import com.jicp.api.profesor.ProfesorRepository
+import com.jicp.api.seguridad.Rol
 import com.jicp.api.seguridad.UsuarioAutenticado
 import com.jicp.api.shared.RecursoNoEncontradoException
 import com.jicp.api.shared.SinPermisoException
@@ -28,6 +30,7 @@ class ComentarioService(
     private val comentarios: ComentarioProyectoRepository,
     private val proyectos: ProyectoRepository,
     private val alumnos: AlumnoRepository,
+    private val profesores: ProfesorRepository,
 ) {
 
     fun listar(idProyecto: Int, pagina: Int, tamano: Int): Page<ComentarioResponse> {
@@ -40,33 +43,42 @@ class ComentarioService(
     }
 
     /**
-     * Comentar un proyecto. El autor sale del token; el texto se recorta antes de guardar
-     * para que la restriccion de la base (texto no vacio) no salte por espacios sueltos.
+     * Comentar un proyecto. Pueden hacerlo el alumnado y el profesorado, siempre de su
+     * propio centro. El autor sale del token; el texto se recorta antes de guardar para
+     * que la restriccion de la base (texto no vacio) no salte por espacios sueltos.
      */
     @Transactional
     fun comentar(
         idProyecto: Int,
-        idAlumnoActor: Int,
+        actor: UsuarioAutenticado,
         peticion: CrearComentarioRequest,
     ): ComentarioResponse {
         val proyecto = proyectos.findById(idProyecto)
             .orElseThrow { RecursoNoEncontradoException("proyecto", idProyecto) }
-        val alumno = alumnos.findById(idAlumnoActor)
-            .orElseThrow { RecursoNoEncontradoException("alumno", idAlumnoActor) }
 
-        // Mismo centro: un alumno no comenta el mercado de otro colegio, igual que no
-        // puede invertir en el.
-        if (proyecto.colegio.id != alumno.colegio.id) {
+        val comentario = ComentarioProyecto(proyecto = proyecto, texto = peticion.texto.trim())
+        val centroDelAutor = when (actor.rol) {
+            Rol.ALUMNO -> {
+                val alumno = alumnos.findByUsuarioId(actor.idUsuario)
+                    ?: throw SinPermisoException("El usuario autenticado no tiene ficha de alumno")
+                comentario.alumno = alumno
+                alumno.colegio.id
+            }
+            Rol.PROFESOR -> {
+                val profesor = profesores.findByUsuarioId(actor.idUsuario)
+                    ?: throw SinPermisoException("El usuario autenticado no tiene ficha de profesor")
+                comentario.profesor = profesor
+                profesor.colegio.id
+            }
+            Rol.ADMIN -> throw SinPermisoException("Comentan el alumnado y el profesorado del centro")
+        }
+
+        // Mismo centro: nadie comenta el mercado de otro colegio.
+        if (proyecto.colegio.id != centroDelAutor) {
             throw SinPermisoException("Solo puedes comentar proyectos de tu propio centro")
         }
 
-        return comentarios.save(
-            ComentarioProyecto(
-                proyecto = proyecto,
-                alumno = alumno,
-                texto = peticion.texto.trim(),
-            ),
-        ).toResponse()
+        return comentarios.save(comentario).toResponse()
     }
 }
 
@@ -74,10 +86,9 @@ class ComentarioService(
 @RequestMapping("/api/v1/proyectos/{idProyecto}/comentarios")
 class ComentarioController(
     private val servicio: ComentarioService,
-    private val alumnos: AlumnoRepository,
 ) {
 
-    /** Leer el hilo es abierto: forma parte de la ficha publica del proyecto. */
+    /** El hilo de un proyecto. Basta con tener sesion. */
     @GetMapping
     fun listar(
         @PathVariable idProyecto: Int,
@@ -86,17 +97,14 @@ class ComentarioController(
     ): Page<ComentarioResponse> = servicio.listar(idProyecto, page, size.coerceIn(1, 100))
 
     @SecurityRequirement(name = "bearerAuth")
-    @PreAuthorize("hasRole('ALUMNO')")
+    @PreAuthorize("hasAnyRole('ALUMNO', 'PROFESOR')")
     @PostMapping
     fun comentar(
         @PathVariable idProyecto: Int,
         @Valid @RequestBody peticion: CrearComentarioRequest,
         @AuthenticationPrincipal actor: UsuarioAutenticado,
     ): ResponseEntity<ComentarioResponse> {
-        val idAlumno = alumnos.findByUsuarioId(actor.idUsuario)?.id
-            ?: throw SinPermisoException("El usuario autenticado no tiene ficha de alumno")
-
-        val creado = servicio.comentar(idProyecto, idAlumno, peticion)
+        val creado = servicio.comentar(idProyecto, actor, peticion)
         return ResponseEntity
             .created(URI.create("/api/v1/proyectos/$idProyecto/comentarios/${creado.id}"))
             .body(creado)

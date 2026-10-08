@@ -27,6 +27,9 @@ class EstadoDeSesion {
   Rol? get rol => perfil?.rol;
 
   PerfilAlumno? get alumno => perfil?.alumno;
+
+  /// El centro de quien ha entrado, sea alumno o profesor. Null para un admin.
+  int? get idColegio => perfil?.alumno?.idColegio ?? perfil?.profesor?.idColegio;
 }
 
 /// La sesion activa: quien ha entrado, con que rol y su ultimo saldo.
@@ -78,6 +81,33 @@ class Sesion extends Notifier<EstadoDeSesion> {
   /// aprovechada para no tener que pedir `/cartera` otra vez.
   void anotarSaldoDelServidor(double saldo) {
     state = EstadoDeSesion(perfil: state.perfil, saldo: saldo);
+  }
+
+  /// Cambia el email y/o la contraseña de la cuenta.
+  ///
+  /// Si cambia la contraseña, el servidor revoca todas las sesiones, también la de
+  /// este móvil. Para no echar al usuario, se vuelve a entrar en el acto con la
+  /// contraseña nueva, que es justo la que acaba de escribir.
+  Future<Perfil> actualizarMiCuenta({
+    required String passwordActual,
+    String? email,
+    String? passwordNueva,
+  }) async {
+    final auth = ref.read(repositorioAuthProvider);
+    final perfil = await auth.actualizarMiCuenta(
+      passwordActual: passwordActual,
+      email: email,
+      passwordNueva: passwordNueva,
+    );
+
+    if (passwordNueva != null && passwordNueva.isNotEmpty) {
+      final renovado = await auth.login(email: perfil.email, password: passwordNueva);
+      state = EstadoDeSesion(perfil: renovado, saldo: state.saldo);
+      return renovado;
+    }
+
+    state = EstadoDeSesion(perfil: perfil, saldo: state.saldo);
+    return perfil;
   }
 
   Future<void> salir() async {

@@ -67,6 +67,38 @@ class RepositorioAuth {
     return Perfil.desdeJson(respuesta.data!);
   }
 
+  /// Cambia el email y/o la contraseña del usuario del token. El servidor exige
+  /// siempre la contraseña actual. Si cambia la contraseña, el servidor cierra
+  /// todas las sesiones abiertas, esta incluida: quien llama tiene que volver a
+  /// entrar con la nueva.
+  Future<Perfil> actualizarMiCuenta({
+    required String passwordActual,
+    String? email,
+    String? passwordNueva,
+  }) async {
+    final Response<Map<String, dynamic>> respuesta;
+    try {
+      respuesta = await _cliente.dio.patch<Map<String, dynamic>>(
+        '/yo',
+        data: {
+          'passwordActual': passwordActual,
+          if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+          if (passwordNueva != null && passwordNueva.isNotEmpty) 'passwordNueva': passwordNueva,
+        },
+      );
+    } catch (e) {
+      throw ClienteApi.traducirError(e);
+    }
+
+    if (respuesta.statusCode != 200 || respuesta.data == null) {
+      throw ErrorApi(
+        _detalle(respuesta) ?? 'No se han podido guardar los cambios',
+        codigo: respuesta.statusCode,
+      );
+    }
+    return Perfil.desdeJson(respuesta.data!);
+  }
+
   /// Cierra sesion. Revoca el refresh en el servidor y borra los tokens locales.
   ///
   /// Si la llamada falla igualmente se borran en local: no tiene sentido dejar a

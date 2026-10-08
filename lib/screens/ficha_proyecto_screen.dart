@@ -46,22 +46,29 @@ class _FichaProyectoScreenState extends ConsumerState<FichaProyectoScreen> {
     _cargar();
   }
 
+  /// Quien mira es alumno. El profesorado ve la ficha en solo lectura: ni compra
+  /// ni tiene cartera, y el servidor le negaría `/portafolio` y `/cartera`.
+  bool get _esAlumno => ref.read(sesionProvider).rol == Rol.alumno;
+
   Future<void> _cargar() async {
     setState(() => _error = null);
+    final repositorio = ref.read(repositorioProyectosProvider);
+    final esAlumno = _esAlumno;
     try {
       final resultados = await Future.wait([
-        ref.read(repositorioProyectosProvider).estadoDeMercado(_proyecto.id),
-        ref.read(repositorioProyectosProvider).portafolio(),
-        ref.read(repositorioProyectosProvider).saldo(),
+        repositorio.estadoDeMercado(_proyecto.id),
+        if (esAlumno) repositorio.portafolio(),
+        if (esAlumno) repositorio.saldo(),
       ]);
       if (!mounted) return;
-      final posiciones = resultados[1] as List<Posicion>;
       setState(() {
         _mercado = resultados[0] as EstadoDeMercado;
-        _miPosicion = posiciones
-            .where((p) => p.idProyecto == _proyecto.id)
-            .firstOrNull;
-        _saldo = resultados[2] as double;
+        if (esAlumno) {
+          _miPosicion = (resultados[1] as List<Posicion>)
+              .where((p) => p.idProyecto == _proyecto.id)
+              .firstOrNull;
+          _saldo = resultados[2] as double;
+        }
         _cargando = false;
       });
     } on ErrorApi catch (e) {
@@ -306,7 +313,7 @@ class _FichaProyectoScreenState extends ConsumerState<FichaProyectoScreen> {
       const SizedBox(height: 16),
       _enlaceAComentarios(),
       const SizedBox(height: 32),
-      _botonDeCompra(m),
+      if (_esAlumno) _botonDeCompra(m),
       const SizedBox(height: 24),
     ];
   }

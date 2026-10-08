@@ -11,6 +11,8 @@ interface UsuarioRepository : JpaRepository<Usuario, Int> {
     fun existsByEmail(email: String): Boolean
 
     fun findByEmail(email: String): Usuario?
+
+    fun existsByRol(rol: Rol): Boolean
 }
 
 interface RefreshTokenRepository : JpaRepository<RefreshToken, Long> {

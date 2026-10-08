@@ -1,6 +1,7 @@
 package com.jicp.api.proyecto
 
 import com.jicp.api.alumno.Alumno
+import com.jicp.api.profesor.Profesor
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.FetchType
@@ -27,12 +28,20 @@ class ComentarioProyecto(
     @JoinColumn(name = "id_proyecto", nullable = false)
     var proyecto: Proyecto,
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "id_alumno", nullable = false)
-    var alumno: Alumno,
-
     @Column(name = "texto", nullable = false, columnDefinition = "text")
     var texto: String,
+
+    /**
+     * Quien lo escribio: un alumno o un profesor, nunca los dos ni ninguno. Lo garantiza
+     * el CHECK `un_solo_autor` de la base.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_alumno")
+    var alumno: Alumno? = null,
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_profesor")
+    var profesor: Profesor? = null,
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -46,7 +55,7 @@ class ComentarioProyecto(
 
 interface ComentarioProyectoRepository : JpaRepository<ComentarioProyecto, Int> {
 
-    @EntityGraph(attributePaths = ["alumno"])
+    @EntityGraph(attributePaths = ["alumno", "profesor"])
     fun findByProyectoIdOrderByIdDesc(idProyecto: Int, pageable: Pageable): Page<ComentarioProyecto>
 }
 
@@ -56,22 +65,34 @@ data class CrearComentarioRequest(
     val texto: String,
 )
 
+/**
+ * Un comentario del hilo. De `idAlumno` e `idProfesor` viene relleno exactamente uno:
+ * el de quien lo escribio. `deProfesor` lo dice sin tener que mirar cual.
+ */
 data class ComentarioResponse(
     val id: Int,
     val idProyecto: Int,
-    val idAlumno: Int,
+    val idAlumno: Int?,
+    val idProfesor: Int?,
+    val deProfesor: Boolean,
     val nombre: String,
     val apellido: String,
     val texto: String,
     val fecha: LocalDateTime,
 )
 
-fun ComentarioProyecto.toResponse() = ComentarioResponse(
-    id = requireNotNull(id) { "Comentario sin persistir" },
-    idProyecto = requireNotNull(proyecto.id) { "Proyecto sin persistir" },
-    idAlumno = requireNotNull(alumno.id) { "Alumno sin persistir" },
-    nombre = alumno.nombre,
-    apellido = alumno.apellido,
-    texto = texto,
-    fecha = fechaRegistro,
-)
+fun ComentarioProyecto.toResponse(): ComentarioResponse {
+    val delAlumno = alumno
+    val delProfesor = profesor
+    return ComentarioResponse(
+        id = requireNotNull(id) { "Comentario sin persistir" },
+        idProyecto = requireNotNull(proyecto.id) { "Proyecto sin persistir" },
+        idAlumno = delAlumno?.id,
+        idProfesor = delProfesor?.id,
+        deProfesor = delProfesor != null,
+        nombre = delAlumno?.nombre ?: delProfesor?.nombre ?: "",
+        apellido = delAlumno?.apellido ?: delProfesor?.apellido ?: "",
+        texto = texto,
+        fecha = fechaRegistro,
+    )
+}

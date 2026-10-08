@@ -48,6 +48,10 @@ dependencies:
   # tests se sustituyen con `overrides`. La 3.4.1+ exige Dart 3.12.
   flutter_riverpod: ^3.3.2
 
+  # Abre los enlaces de los cursos en el navegador del sistema. Es el paquete
+  # oficial del equipo de Flutter: la plataforma no trae otra forma de hacerlo.
+  url_launcher: ^6.3.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

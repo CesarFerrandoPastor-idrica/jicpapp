@@ -7,11 +7,13 @@ import com.jicp.api.seguridad.Usuario
 import com.jicp.api.seguridad.UsuarioRepository
 import com.jicp.api.shared.ConflictoException
 import com.jicp.api.shared.RecursoNoEncontradoException
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
 
 @Service
 @Transactional(readOnly = true)
@@ -21,6 +23,8 @@ class AlumnoService(
     private val colegios: ColegioService,
     private val contabilidad: ContabilidadService,
     private val passwordEncoder: PasswordEncoder,
+    /** Lo que recibe cada alumno al darse de alta. Igual para todos; lo decide el servidor. */
+    @Value("\${jicp.saldo-inicial}") private val saldoInicial: BigDecimal,
 ) {
 
     fun listar(idColegio: Int?, pageable: Pageable): Page<AlumnoResponse> {
@@ -56,7 +60,7 @@ class AlumnoService(
                 rol = Rol.ALUMNO,
             ),
             colegio = colegio,
-            jicpInicial = peticion.jicpInicial,
+            jicpInicial = saldoInicial,
         )
         val guardado = repositorio.save(alumno)
 
@@ -64,7 +68,7 @@ class AlumnoService(
         // concesion inicial se apunta contra la cuenta de emision en lugar de escribir un
         // numero a mano. Asi el dinero de la clase cuadra a cero desde la primera fila.
         contabilidad.abrirCartera(guardado)
-        contabilidad.concederSaldoInicial(guardado, peticion.jicpInicial)
+        contabilidad.concederSaldoInicial(guardado, saldoInicial)
 
         return guardado.toResponse()
     }

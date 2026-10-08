@@ -16,6 +16,7 @@ import 'package:jicpapp/api/sesion.dart';
 import 'package:jicpapp/screens/comentarios_screen.dart';
 
 const _miId = 7;
+const _miIdProfesor = 3;
 
 Comentario _comentario(int id, {int idAlumno = 99, String texto = 'Buen proyecto'}) =>
     Comentario(
@@ -25,6 +26,8 @@ Comentario _comentario(int id, {int idAlumno = 99, String texto = 'Buen proyecto
       texto: texto,
       fecha: DateTime.now().subtract(const Duration(minutes: 5)),
     );
+
+final _haceUnRato = DateTime.now().subtract(const Duration(minutes: 5));
 
 class _RepositorioFalso implements RepositorioProyectos {
   /// Todo el hilo, del más reciente al más antiguo. Se sirve por páginas.
@@ -87,6 +90,15 @@ class _SesionAbierta extends Sesion {
                   idColegio: 1,
                   nombreColegio: 'IES',
                   jicpInicial: 1000,
+                )
+              : null,
+          profesor: rol == Rol.profesor
+              ? const PerfilProfesor(
+                  id: _miIdProfesor,
+                  nombre: 'Marta',
+                  apellido: 'Ruiz',
+                  idColegio: 1,
+                  nombreColegio: 'IES',
                 )
               : null,
         ),
@@ -207,9 +219,38 @@ void main() {
     expect(_botonPublicar(tester).onPressed, isNull);
   });
 
-  testWidgets('un profesor lee el hilo pero no ve la caja de texto', (tester) async {
-    final repo = _RepositorioFalso()..hilo.add(_comentario(1));
+  testWidgets('el profesor también comenta, y lo suyo sale como "Tú" con su etiqueta',
+      (tester) async {
+    final repo = _RepositorioFalso()
+      ..hilo.addAll([
+        Comentario(
+          id: 2,
+          idProfesor: _miIdProfesor,
+          deProfesor: true,
+          autor: 'Marta Ruiz',
+          texto: 'Revisad los costes',
+          fecha: _haceUnRato,
+        ),
+        Comentario(
+          id: 1,
+          idProfesor: 99,
+          deProfesor: true,
+          autor: 'Otro Profe',
+          texto: 'Muy bien',
+          fecha: _haceUnRato,
+        ),
+      ]);
     await _montar(tester, repo, rol: Rol.profesor);
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Tú'), findsOneWidget);
+    expect(find.text('Otro Profe'), findsOneWidget);
+    expect(find.text('Profesor'), findsNWidgets(2));
+  });
+
+  testWidgets('un admin lee el hilo pero no ve la caja de texto', (tester) async {
+    final repo = _RepositorioFalso()..hilo.add(_comentario(1));
+    await _montar(tester, repo, rol: Rol.admin);
 
     expect(find.text('Buen proyecto'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);

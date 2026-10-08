@@ -36,29 +36,25 @@ class ProfesorController(
     fun obtener(@PathVariable id: Int): ProfesorResponse = servicio.obtener(id)
 
     /**
-     * A un profesor lo da de alta otro profesor, y en su mismo centro.
-     *
-     * Este endpoint crea credenciales, asi que es de los pocos que ya esta cerrado
-     * mientras el resto del CRUD sigue abierto: dejar abierta la creacion de cuentas
-     * es distinto de dejar abierta la lectura de un catalogo.
+     * Alta de profesor en el centro indicado. Solo ADMIN: de momento las altas de
+     * usuarios las hacen los desarrolladores.
      */
     @SecurityRequirement(name = "bearerAuth")
-    @PreAuthorize("hasRole('PROFESOR')")
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
     fun crear(
         @Valid @RequestBody peticion: CrearProfesorRequest,
-        @AuthenticationPrincipal actor: UsuarioAutenticado,
     ): ResponseEntity<ProfesorResponse> {
-        val creado = servicio.crear(peticion, actor.idUsuario)
+        val creado = servicio.crear(peticion)
         return ResponseEntity.created(URI.create("/api/v1/profesores/${creado.id}")).body(creado)
     }
 
     @SecurityRequirement(name = "bearerAuth")
-    @PreAuthorize("hasRole('PROFESOR')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PROFESOR')")
     @PutMapping("/{id}")
     fun actualizar(
         @PathVariable id: Int,
         @Valid @RequestBody peticion: ActualizarProfesorRequest,
         @AuthenticationPrincipal actor: UsuarioAutenticado,
-    ): ProfesorResponse = servicio.actualizar(id, peticion, actor.idUsuario)
+    ): ProfesorResponse = servicio.actualizar(id, peticion, actor)
 }
